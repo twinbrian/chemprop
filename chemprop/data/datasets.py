@@ -24,9 +24,10 @@ class Datum(NamedTuple):
     V_d: np.ndarray | None
     x_d: np.ndarray | None
     y: np.ndarray | None
+    slices: list
     weight: float
-    lt_mask: np.ndarray | None
-    gt_mask: np.ndarray | None
+    lt_mask: list[np.ndarray] | None
+    gt_mask: list[np.ndarray] | None
 
 
 MolGraphDataset: TypeAlias = Dataset[Datum]
@@ -37,9 +38,18 @@ class _MolGraphDatasetMixin:
         return len(self.data)
 
     @cached_property
-    def _Y(self) -> np.ndarray:
+    def _Y(self) -> tuple[np.ndarray, list]:
         """the raw targets of the dataset"""
-        return np.array([d.y for d in self.data], float)
+        dim = self.data[0].y.shape[1]
+        raw_targets = np.empty((0,dim),float)
+        slice_indices = []
+        index = 0
+        for d in self.data:
+            molecule_target = np.vstack(d.y)
+            raw_targets = np.vstack([raw_targets,molecule_target])
+            slice_indices.append([index] * molecule_target.shape[0]) 
+            index += 1
+        return raw_targets, slice_indices
 
     @property
     def Y(self) -> np.ndarray:
@@ -74,11 +84,19 @@ class _MolGraphDatasetMixin:
 
     @property
     def gt_mask(self) -> np.ndarray:
-        return np.array([d.gt_mask for d in self.data])
+        dim = self.data[0].gt_mask.shape[1]
+        temp_gt_mask = np.empty((0,dim))
+        for d in self.data:
+            temp_gt_mask = np.vstack([temp_gt_mask,np.vstack(d.gt_mask)])
+        return temp_gt_mask
 
     @property
     def lt_mask(self) -> np.ndarray:
-        return np.array([d.lt_mask for d in self.data])
+        dim = self.data[0].lt_mask.shape[1]
+        temp_lt_mask = np.empty((0,dim))
+        for d in self.data:
+            temp_lt_mask = np.vstack([temp_lt_mask,np.vstack(d.lt_mask)])
+        return temp_lt_mask
 
     @property
     def t(self) -> int | None:
@@ -106,9 +124,9 @@ class _MolGraphDatasetMixin:
         """
 
         if scaler is None:
-            scaler = StandardScaler().fit(self._Y)
+            scaler = StandardScaler().fit(self._Y[0])
 
-        self.Y = scaler.transform(self._Y)
+        self.Y = scaler.transform(self._Y[0])
 
         return scaler
 
@@ -134,7 +152,7 @@ class _MolGraphDatasetMixin:
     def reset(self):
         """Reset the atom and bond features; atom and extra descriptors; and targets of each
         datapoint to their initial, unnormalized values."""
-        self.__Y = self._Y
+        self.__Y = self._Y[0]
         self.__X_d = self._X_d
 
     def _validate_attribute(self, X: np.ndarray, label: str):
@@ -177,8 +195,10 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
     def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
-
-        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
+        slices = self._Y[1]
+        ind_first = slices.index(idx)
+        ind_last = ind_first + slices.count(idx)
+        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], slices, d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def cache(self) -> bool:
@@ -353,7 +373,7 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
-
+        self.Y
         return Datum(mg, None, self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
