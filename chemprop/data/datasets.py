@@ -24,7 +24,7 @@ class Datum(NamedTuple):
     V_d: np.ndarray | None
     x_d: np.ndarray | None
     y: np.ndarray | None
-    slices: list
+    length: float
     weight: float
     lt_mask: list[np.ndarray] | None
     gt_mask: list[np.ndarray] | None
@@ -47,7 +47,7 @@ class _MolGraphDatasetMixin:
         for d in self.data:
             molecule_target = np.vstack(d.y)
             raw_targets = np.vstack([raw_targets,molecule_target])
-            slice_indices.append([index] * molecule_target.shape[0]) 
+            slice_indices.extend([index] * molecule_target.shape[0]) 
             index += 1
         return raw_targets, slice_indices
 
@@ -198,7 +198,7 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         slices = self._Y[1]
         ind_first = slices.index(idx)
         ind_last = ind_first + slices.count(idx)
-        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], slices, d.weight, d.lt_mask, d.gt_mask)
+        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def cache(self) -> bool:
@@ -336,7 +336,6 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         self.__E_fs = self._E_fs
         self.__V_ds = self._V_ds
 
-
 @dataclass
 class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     """A :class:`ReactionDataset` composed of :class:`ReactionDatapoint`\s
@@ -373,8 +372,10 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
-        self.Y
-        return Datum(mg, None, self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
+        slices = self._Y[1]
+        ind_first = slices.index(idx)
+        ind_last = ind_first + slices.count(idx)
+        return Datum(mg, None, self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def smiles(self) -> list[tuple]:

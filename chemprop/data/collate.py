@@ -77,23 +77,31 @@ class TrainingBatch(NamedTuple):
     V_d: Tensor | None
     X_d: Tensor | None
     Y: Tensor | None
+    l: Tensor
     w: Tensor
     lt_mask: Tensor | None
     gt_mask: Tensor | None
 
+#TODO: fix lt_mask and gt_mask?
 
 def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
-    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
+    mgs, V_ds, x_ds, ys, lengths, weights, lt_masks, gt_masks = zip(*batch)
+    dim = ys[0].shape[1]
+    np_y = np.empty((0,dim),float)
+    for y in ys:
+        np_y = np.vstack([np_y,y])
 
     return TrainingBatch(
         BatchMolGraph(mgs),
         None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
         None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
-        None if ys[0] is None else torch.from_numpy(np.array(ys)).float(),
+        None if ys[0] is None else torch.from_numpy(np_y).float(),
+        torch.tensor(lengths, dtype=torch.float).unsqueeze(1),
         torch.tensor(weights, dtype=torch.float).unsqueeze(1),
         None if lt_masks[0] is None else torch.from_numpy(np.array(lt_masks)),
         None if gt_masks[0] is None else torch.from_numpy(np.array(gt_masks)),
     )
+
 
 
 class MulticomponentTrainingBatch(NamedTuple):
@@ -101,6 +109,7 @@ class MulticomponentTrainingBatch(NamedTuple):
     V_ds: list[Tensor | None]
     X_d: Tensor | None
     Y: Tensor | None
+    l: Tensor
     w: Tensor
     lt_mask: Tensor | None
     gt_mask: Tensor | None
@@ -114,6 +123,7 @@ def collate_multicomponent(batches: Iterable[Iterable[Datum]]) -> Multicomponent
         [tb.V_d for tb in tbs],
         tbs[0].X_d,
         tbs[0].Y,
+        tbs[0].l,
         tbs[0].w,
         tbs[0].lt_mask,
         tbs[0].gt_mask,
