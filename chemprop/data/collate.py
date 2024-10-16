@@ -81,7 +81,7 @@ class TrainingBatch(NamedTuple):
     lt_mask: Tensor | None
     gt_mask: Tensor | None
 
-class AtomTrainingBatch(TrainingBatch):
+class AtomTrainingBatch(NamedTuple):
     bmg: BatchMolGraph
     V_d: Tensor | None
     X_d: Tensor | None
