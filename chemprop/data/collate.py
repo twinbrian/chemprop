@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from chemprop.data.datasets import Datum
+from chemprop.data.datasets import Datum, AtomDatum
 from chemprop.data.molgraph import MolGraph
 
 
@@ -77,6 +77,15 @@ class TrainingBatch(NamedTuple):
     V_d: Tensor | None
     X_d: Tensor | None
     Y: Tensor | None
+    w: Tensor
+    lt_mask: Tensor | None
+    gt_mask: Tensor | None
+
+class AtomTrainingBatch(TrainingBatch):
+    bmg: BatchMolGraph
+    V_d: Tensor | None
+    X_d: Tensor | None
+    Y: Tensor | None
     l: Tensor
     w: Tensor
     lt_mask: Tensor | None
@@ -85,13 +94,26 @@ class TrainingBatch(NamedTuple):
 #TODO: fix lt_mask and gt_mask?
 
 def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
+    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
+
+    return TrainingBatch(
+        BatchMolGraph(mgs),
+        None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
+        None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
+        None if ys[0] is None else torch.from_numpy(np.array(ys)).float(),
+        torch.tensor(weights, dtype=torch.float).unsqueeze(1),
+        None if lt_masks[0] is None else torch.from_numpy(np.array(lt_masks)),
+        None if gt_masks[0] is None else torch.from_numpy(np.array(gt_masks)),
+    )
+
+def atom_collate_batch(batch: Iterable[AtomDatum]) -> AtomTrainingBatch:
     mgs, V_ds, x_ds, ys, lengths, weights, lt_masks, gt_masks = zip(*batch)
     dim = ys[0].shape[1]
     np_y = np.empty((0,dim),float)
     for y in ys:
         np_y = np.vstack([np_y,y])
 
-    return TrainingBatch(
+    return AtomTrainingBatch(
         BatchMolGraph(mgs),
         None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
         None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),

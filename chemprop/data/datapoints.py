@@ -14,15 +14,14 @@ MoleculeFeaturizer = Featurizer[Chem.Mol, np.ndarray]
 @dataclass(slots=True)
 class _DatapointMixin:
     """A mixin class for both molecule- and reaction- and multicomponent-type data"""
-
-    y: list[np.ndarray] | None = None
-    """the list targets for each atom in the molecule with unknown targets indicated by `nan`s"""
+    y: np.ndarray | None = None
+    """the list targets for atom/molecules with unknown targets indicated by `nan`s"""
     weight: float = 1.0
     """the weight of this datapoint for the loss calculation."""
-    gt_mask: list[np.ndarray] | None = None
-    """Indicates whether the atom targets are an inequality regression target of the form `<x`"""
-    lt_mask: list[np.ndarray] | None = None
-    """Indicates whether the atom targets are an inequality regression target of the form `>x`"""
+    gt_mask: np.ndarray | None = None
+    """Indicates whether the atom/molecule targets are an inequality regression target of the form `<x`"""
+    lt_mask: np.ndarray | None = None
+    """Indicates whether the atom/molcule targets are an inequality regression target of the form `>x`"""
     x_d: np.ndarray | None = None
     """A vector of length ``d_f`` containing additional features (e.g., Morgan fingerprint) that
     will be concatenated to the global representation *after* aggregation"""

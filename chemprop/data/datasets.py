@@ -18,7 +18,17 @@ from chemprop.types import Rxn
 
 
 class Datum(NamedTuple):
-    """a singular training data point"""
+    """a singular training molecule data point"""
+
+    mg: MolGraph
+    V_d: np.ndarray | None
+    x_d: np.ndarray | None
+    y: np.ndarray | None
+    weight: float
+    lt_mask: np.ndarray | None
+    gt_mask: np.ndarray | None
+
+class AtomDatum(NamedTuple):
 
     mg: MolGraph
     V_d: np.ndarray | None
@@ -26,30 +36,24 @@ class Datum(NamedTuple):
     y: np.ndarray | None
     length: float
     weight: float
-    lt_mask: list[np.ndarray] | None
-    gt_mask: list[np.ndarray] | None
+    lt_mask: np.ndarray | None
+    gt_mask: np.ndarray | None
 
 
 MolGraphDataset: TypeAlias = Dataset[Datum]
+MolGraphAtomDataset: TypeAlias = Dataset[AtomDatum]
 
+#Make inherited class, changes in model.py fingerprint, MSELOSS in loss.py, also dont need actual lengths in
+#train.py, but need in predict.py
 
 class _MolGraphDatasetMixin:
     def __len__(self) -> int:
         return len(self.data)
 
     @cached_property
-    def _Y(self) -> tuple[np.ndarray, list]:
+    def _Y(self) -> np.ndarray:
         """the raw targets of the dataset"""
-        dim = self.data[0].y.shape[1]
-        raw_targets = np.empty((0,dim),float)
-        slice_indices = []
-        index = 0
-        for d in self.data:
-            molecule_target = np.vstack(d.y)
-            raw_targets = np.vstack([raw_targets,molecule_target])
-            slice_indices.extend([index] * molecule_target.shape[0]) 
-            index += 1
-        return raw_targets, slice_indices
+        return np.array([d.y for d in self.data], float)
 
     @property
     def Y(self) -> np.ndarray:
@@ -84,19 +88,11 @@ class _MolGraphDatasetMixin:
 
     @property
     def gt_mask(self) -> np.ndarray:
-        dim = self.data[0].gt_mask.shape[1]
-        temp_gt_mask = np.empty((0,dim))
-        for d in self.data:
-            temp_gt_mask = np.vstack([temp_gt_mask,np.vstack(d.gt_mask)])
-        return temp_gt_mask
+        return np.array([d.gt_mask for d in self.data])
 
     @property
     def lt_mask(self) -> np.ndarray:
-        dim = self.data[0].lt_mask.shape[1]
-        temp_lt_mask = np.empty((0,dim))
-        for d in self.data:
-            temp_lt_mask = np.vstack([temp_lt_mask,np.vstack(d.lt_mask)])
-        return temp_lt_mask
+        return np.array([d.lt_mask for d in self.data])
 
     @property
     def t(self) -> int | None:
@@ -124,9 +120,9 @@ class _MolGraphDatasetMixin:
         """
 
         if scaler is None:
-            scaler = StandardScaler().fit(self._Y[0])
+            scaler = StandardScaler().fit(self._Y)
 
-        self.Y = scaler.transform(self._Y[0])
+        self.Y = scaler.transform(self._Y)
 
         return scaler
 
@@ -152,7 +148,7 @@ class _MolGraphDatasetMixin:
     def reset(self):
         """Reset the atom and bond features; atom and extra descriptors; and targets of each
         datapoint to their initial, unnormalized values."""
-        self.__Y = self._Y[0]
+        self.__Y = self._Y
         self.__X_d = self._X_d
 
     def _validate_attribute(self, X: np.ndarray, label: str):
@@ -161,7 +157,6 @@ class _MolGraphDatasetMixin:
                 f"number of molecules ({len(self.data)}) and {label} ({len(X)}) "
                 "must have same length!"
             )
-
 
 @dataclass
 class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
@@ -195,10 +190,8 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
     def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
-        slices = self._Y[1]
-        ind_first = slices.index(idx)
-        ind_last = ind_first + slices.count(idx)
-        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
+
+        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def cache(self) -> bool:
@@ -337,6 +330,55 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         self.__V_ds = self._V_ds
 
 @dataclass
+class AtomDataset(MoleculeDataset, MolGraphAtomDataset):
+
+    @cached_property
+    def _Y(self) -> np.ndarray:
+        dim = self.data[0].y.shape[1]
+        raw_targets = np.empty((0,dim),float)
+        for d in self.data:
+            raw_targets = np.vstack([raw_targets,d.y])
+        return raw_targets
+
+    @cached_property
+    def _slices(self) -> list:
+        slice_indices = []
+        index = 0
+        for d in self.data:
+            slice_indices.extend([index] * d.y.shape[0]) 
+            index += 1
+        return slice_indices
+
+    @property
+    def gt_mask(self) -> np.ndarray:
+        dim = self.data[0].gt_mask.shape[1]
+        temp_gt_mask = np.empty((0,dim))
+        for d in self.data:
+            temp_gt_mask = np.vstack([temp_gt_mask,np.vstack(d.gt_mask)])
+        return temp_gt_mask
+
+    @property
+    def lt_mask(self) -> np.ndarray:
+        dim = self.data[0].lt_mask.shape[1]
+        temp_lt_mask = np.empty((0,dim))
+        for d in self.data:
+            temp_lt_mask = np.vstack([temp_lt_mask,np.vstack(d.lt_mask)])
+        return temp_lt_mask
+
+    def __getitem__(self, idx: int) -> AtomDatum:
+        d = self.data[idx]
+        mg = self.mg_cache[idx]
+        slices = self._slices
+        ind_first = slices.index(idx)
+        ind_last = ind_first + slices.count(idx)
+
+        return AtomDatum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
+
+
+#Is there a way to create a wrapper for all of the overriding so we can do it much easier for reactiondataset and multicomponent?
+
+
+@dataclass
 class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     """A :class:`ReactionDataset` composed of :class:`ReactionDatapoint`\s
 
@@ -372,10 +414,8 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
-        slices = self._Y[1]
-        ind_first = slices.index(idx)
-        ind_last = ind_first + slices.count(idx)
-        return Datum(mg, None, self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
+
+        return Datum(mg, None, self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def smiles(self) -> list[tuple]:
@@ -396,7 +436,6 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
     @property
     def d_vd(self) -> int:
         return 0
-
 
 @dataclass(repr=False, eq=False)
 class MulticomponentDataset(_MolGraphDatasetMixin, Dataset):

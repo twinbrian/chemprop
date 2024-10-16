@@ -2,13 +2,13 @@ import warnings
 
 from torch.utils.data import DataLoader
 
-from chemprop.data.collate import collate_batch, collate_multicomponent
-from chemprop.data.datasets import MoleculeDataset, MulticomponentDataset, ReactionDataset
+from chemprop.data.collate import collate_batch, atom_collate_batch, collate_multicomponent
+from chemprop.data.datasets import MoleculeDataset, AtomDataset, MulticomponentDataset, ReactionDataset
 from chemprop.data.samplers import ClassBalanceSampler, SeededSampler
 
 
 def build_dataloader(
-    dataset: MoleculeDataset | ReactionDataset | MulticomponentDataset,
+    dataset: MoleculeDataset | AtomDataset | ReactionDataset | MulticomponentDataset,
     batch_size: int = 64,
     num_workers: int = 0,
     class_balance: bool = False,
@@ -45,6 +45,8 @@ def build_dataloader(
 
     if isinstance(dataset, MulticomponentDataset):
         collate_fn = collate_multicomponent
+    elif isinstance(dataset, AtomDataset):
+        collate_fn = atom_collate_batch
     else:
         collate_fn = collate_batch
 
