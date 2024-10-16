@@ -7,7 +7,7 @@ from lightning import pytorch as pl
 import torch
 from torch import Tensor, distributed, nn, optim
 
-from chemprop.data import BatchMolGraph, TrainingBatch, AtomTrainingBatch
+from chemprop.data import BatchMolGraph, TrainingBatch
 from chemprop.nn import Aggregation, LossFunction, MessagePassing, Predictor
 from chemprop.nn.metrics import Metric
 from chemprop.nn.transforms import ScaleTransform
@@ -140,8 +140,8 @@ class MPNN(pl.LightningModule):
         """Generate predictions for the input molecules/reactions"""
         return self.predictor(self.fingerprint(bmg, V_d, X_d))
 
-    def training_step(self, batch: TrainingBatch | AtomTrainingBatch, batch_idx):
-        bmg, V_d, X_d, targets, *_, weights, lt_mask, gt_mask = batch
+    def training_step(self, batch: TrainingBatch, batch_idx):
+        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
@@ -158,7 +158,7 @@ class MPNN(pl.LightningModule):
         self.eval()
         self.predictor.output_transform.train()
 
-    def validation_step(self, batch: TrainingBatch | AtomTrainingBatch, batch_idx: int = 0):
+    def validation_step(self, batch: TrainingBatch, batch_idx: int = 0):
         losses = self._evaluate_batch(batch)
         metric2loss = {f"val/{m.alias}": l for m, l in zip(self.metrics, losses)}
 
@@ -171,14 +171,14 @@ class MPNN(pl.LightningModule):
             sync_dist=distributed.is_initialized(),
         )
 
-    def test_step(self, batch: TrainingBatch | AtomTrainingBatch, batch_idx: int = 0):
+    def test_step(self, batch: TrainingBatch, batch_idx: int = 0):
         losses = self._evaluate_batch(batch)
         metric2loss = {f"batch_averaged_test/{m.alias}": l for m, l in zip(self.metrics, losses)}
 
         self.log_dict(metric2loss, batch_size=len(batch[0]))
 
     def _evaluate_batch(self, batch) -> list[Tensor]:
-        bmg, V_d, X_d, targets, *_, weights lt_mask, gt_mask = batch
+        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
@@ -189,10 +189,10 @@ class MPNN(pl.LightningModule):
             preds = preds[..., 0]
 
         return [
-            metric(preds, targets, mask, *_, weights, lt_mask, gt_mask) for metric in self.metrics[:-1]
+            metric(preds, targets, mask, weights, lt_mask, gt_mask) for metric in self.metrics[:-1]
         ]
 
-    def predict_step(self, batch: TrainingBatch | AtomTrainingBatch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
+    def predict_step(self, batch: TrainingBatch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         """Return the predictions of the input batch
 
         Parameters
@@ -281,3 +281,11 @@ class MPNN(pl.LightningModule):
         model.load_state_dict(state_dict, strict=strict)
 
         return model
+
+class AtomMPNN(MPNN):
+    def fingerprint(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
+    ) -> Tensor:
+        """the learned fingerprints for the input molecules"""
+        H_v = self.message_passing(bmg, V_d)
+
+        return H_v if X_d is None else torch.cat((H_v, self.X_d_transform(X_d)), 1)

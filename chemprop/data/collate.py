@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from chemprop.data.datasets import Datum, AtomDatum
+from chemprop.data.datasets import Datum
 from chemprop.data.molgraph import MolGraph
 
 
@@ -81,19 +81,9 @@ class TrainingBatch(NamedTuple):
     lt_mask: Tensor | None
     gt_mask: Tensor | None
 
-class AtomTrainingBatch(NamedTuple):
-    bmg: BatchMolGraph
-    V_d: Tensor | None
-    X_d: Tensor | None
-    Y: Tensor | None
-    l: Tensor
-    w: Tensor
-    lt_mask: Tensor | None
-    gt_mask: Tensor | None
-
 #TODO: fix lt_mask and gt_mask?
 
-def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
+def molecule_collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
     mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
 
     return TrainingBatch(
@@ -106,22 +96,29 @@ def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
         None if gt_masks[0] is None else torch.from_numpy(np.array(gt_masks)),
     )
 
-def atom_collate_batch(batch: Iterable[AtomDatum]) -> AtomTrainingBatch:
-    mgs, V_ds, x_ds, ys, lengths, weights, lt_masks, gt_masks = zip(*batch)
+def atom_collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
+    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
     dim = ys[0].shape[1]
     np_y = np.empty((0,dim),float)
     for y in ys:
         np_y = np.vstack([np_y,y])
+    dim = lt_masks[0].shape[1]
+    np_lt = np.empty((0,dim))
+    for lt in lt_masks:
+        np_lt = np.vstack([np_lt,lt])
+    dim = gt_masks[0].shape[1]
+    np_gt = np.empty((0,dim))
+    for gt in gt_masks:
+        np_gt = np.vstack([np_gt,gt])
 
-    return AtomTrainingBatch(
+    return TrainingBatch(
         BatchMolGraph(mgs),
         None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
         None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
         None if ys[0] is None else torch.from_numpy(np_y).float(),
-        torch.tensor(lengths, dtype=torch.float).unsqueeze(1),
         torch.tensor(weights, dtype=torch.float).unsqueeze(1),
-        None if lt_masks[0] is None else torch.from_numpy(np.array(lt_masks)),
-        None if gt_masks[0] is None else torch.from_numpy(np.array(gt_masks)),
+        None if lt_masks[0] is None else torch.from_numpy(np_lt),
+        None if gt_masks[0] is None else torch.from_numpy(np_gt),
     )
 
 
@@ -138,7 +135,7 @@ class MulticomponentTrainingBatch(NamedTuple):
 
 
 def collate_multicomponent(batches: Iterable[Iterable[Datum]]) -> MulticomponentTrainingBatch:
-    tbs = [collate_batch(batch) for batch in zip(*batches)]
+    tbs = [molecule_collate_batch(batch) for batch in zip(*batches)]
 
     return MulticomponentTrainingBatch(
         [tb.bmg for tb in tbs],

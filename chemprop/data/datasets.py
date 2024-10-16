@@ -28,20 +28,7 @@ class Datum(NamedTuple):
     lt_mask: np.ndarray | None
     gt_mask: np.ndarray | None
 
-class AtomDatum(NamedTuple):
-
-    mg: MolGraph
-    V_d: np.ndarray | None
-    x_d: np.ndarray | None
-    y: np.ndarray | None
-    length: float
-    weight: float
-    lt_mask: np.ndarray | None
-    gt_mask: np.ndarray | None
-
-
 MolGraphDataset: TypeAlias = Dataset[Datum]
-MolGraphAtomDataset: TypeAlias = Dataset[AtomDatum]
 
 #Make inherited class, changes in model.py fingerprint, MSELOSS in loss.py, also dont need actual lengths in
 #train.py, but need in predict.py
@@ -330,7 +317,7 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         self.__V_ds = self._V_ds
 
 @dataclass
-class AtomDataset(MoleculeDataset, MolGraphAtomDataset):
+class AtomDataset(MoleculeDataset):
 
     @cached_property
     def _Y(self) -> np.ndarray:
@@ -365,14 +352,14 @@ class AtomDataset(MoleculeDataset, MolGraphAtomDataset):
             temp_lt_mask = np.vstack([temp_lt_mask,np.vstack(d.lt_mask)])
         return temp_lt_mask
 
-    def __getitem__(self, idx: int) -> AtomDatum:
+    def __getitem__(self, idx: int) -> Datum:
         d = self.data[idx]
         mg = self.mg_cache[idx]
         slices = self._slices
         ind_first = slices.index(idx)
         ind_last = ind_first + slices.count(idx)
 
-        return AtomDatum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], ind_last - ind_first, d.weight, d.lt_mask, d.gt_mask)
+        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], d.weight, d.lt_mask, d.gt_mask)
 
 
 #Is there a way to create a wrapper for all of the overriding so we can do it much easier for reactiondataset and multicomponent?
