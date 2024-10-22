@@ -234,6 +234,7 @@ def make_prediction_for_models(
     #     cal_data = None
 
     test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False)
+    slices = test_dset._slices()
     # TODO: add uncertainty and calibration
     # if cal_data is not None:
     #     cal_dset = make_dataset(cal_data, bond_messages, args.rxn_mode)
@@ -267,6 +268,8 @@ def make_prediction_for_models(
         # TODO: might want to write a shared function for this as train.py might also want to do this.
         individual_preds.append(torch.concat(predss, 0))
 
+        #split individual predictions via the slices above. Only really need to do predict.py and then add bonds. 
+
     average_preds = torch.mean(torch.stack(individual_preds).float(), dim=0)
     if isinstance(model.predictor, MveFFN) or isinstance(model.predictor, EvidentialFFN):
         average_preds = average_preds[..., 0]
@@ -293,7 +296,12 @@ def make_prediction_for_models(
     df_test = pd.read_csv(
         args.test_path, header=None if args.no_header_row else "infer", index_col=False
     )
-    df_test[target_columns] = average_preds
+    for i in range(len(df_test)):
+        first_atom = slices.index(i)
+        last_atom = first_atom + slices.count(i)
+        mol_avg_preds = average_preds[first_atom:last_atom]
+        df_test.loc[i, target_columns] = [mol_avg_preds[:][j] for j in range(target_columns)]
+
     if output_path.suffix == ".pkl":
         df_test = df_test.reset_index(drop=True)
         df_test.to_pickle(output_path)
@@ -322,7 +330,11 @@ def make_prediction_for_models(
         df_test = pd.read_csv(
             args.test_path, header=None if args.no_header_row else "infer", index_col=False
         )
-        df_test[target_columns] = individual_preds
+        for i in range(len(df_test)):
+            first_atom = slices.index(i)
+            last_atom = first_atom + slices.count(i)
+            mol_preds = individual_preds[first_atom:last_atom]
+            df_test.loc[i, target_columns] = [mol_preds[:][j] for j in range(mol_preds.shape[1])]
 
         output_path = output_path.parent / Path(
             str(args.output.stem) + "_individual" + str(output_path.suffix)

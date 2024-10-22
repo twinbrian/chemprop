@@ -327,6 +327,15 @@ class AtomDataset(MoleculeDataset):
             raw_targets = np.vstack([raw_targets,d.y])
         return raw_targets
 
+    @property
+    def Y(self) -> np.ndarray:
+        """the (scaled) targets of the dataset"""
+        return self.__Y
+
+    @Y.setter
+    def Y(self, Y: ArrayLike):
+        self.__Y = np.array(Y, float)
+
     @cached_property
     def _slices(self) -> list:
         slice_indices = []
@@ -359,7 +368,15 @@ class AtomDataset(MoleculeDataset):
         ind_first = slices.index(idx)
         ind_last = ind_first + slices.count(idx)
 
+        #TODO: fix this for lt_mask and gt_mask and weights!
+
         return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[ind_first:ind_last], d.weight, d.lt_mask, d.gt_mask)
+
+    def reset(self):
+        """Reset the atom and bond features; atom and extra descriptors; and targets of each
+        datapoint to their initial, unnormalized values."""
+        super().reset()
+        self.__Y = self._Y
 
 
 #Is there a way to create a wrapper for all of the overriding so we can do it much easier for reactiondataset and multicomponent?
