@@ -2,6 +2,7 @@ from .agg import (
     Aggregation,
     AggregationRegistry,
     AttentiveAggregation,
+    NoAggregation,
     MeanAggregation,
     NormAggregation,
     SumAggregation,
@@ -71,6 +72,7 @@ from .utils import Activation
 __all__ = [
     "Aggregation",
     "AggregationRegistry",
+    "NoAggregation",
     "MeanAggregation",
     "SumAggregation",
     "NormAggregation",

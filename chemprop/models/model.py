@@ -147,6 +147,7 @@ class MPNN(pl.LightningModule):
         targets = targets.nan_to_num(nan=0.0)
 
         Z = self.fingerprint(bmg, V_d, X_d)
+
         preds = self.predictor.train_step(Z)
         l = self.criterion(preds, targets, mask, weights, lt_mask, gt_mask)
 

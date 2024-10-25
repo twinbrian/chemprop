@@ -178,7 +178,7 @@ def process_predict_args(args: Namespace) -> Namespace:
 def make_prediction_for_models(
     args: Namespace, model_paths: Iterator[Path], multicomponent: bool, output_path: Path
 ):
-    model = load_model(model_paths[0], multicomponent)
+    model = load_model(model_paths[0], multicomponent, args.is_atom_bond_targets)
     bounded = any(
         isinstance(model.criterion, LossFunctionRegistry[loss_function])
         for loss_function in LossFunctionRegistry.keys()
@@ -211,7 +211,7 @@ def make_prediction_for_models(
     test_dsets = [
         make_dataset(d, args.rxn_mode, args.multi_hot_atom_featurizer_mode) for d in test_data
     ]
-
+    slices = test_dset._slices()
     if multicomponent:
         test_dset = data.MulticomponentDataset(test_dsets)
     else:
@@ -234,7 +234,6 @@ def make_prediction_for_models(
     #     cal_data = None
 
     test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False)
-    slices = test_dset._slices()
     # TODO: add uncertainty and calibration
     # if cal_data is not None:
     #     cal_dset = make_dataset(cal_data, bond_messages, args.rxn_mode)
@@ -300,7 +299,7 @@ def make_prediction_for_models(
         first_atom = slices.index(i)
         last_atom = first_atom + slices.count(i)
         mol_avg_preds = average_preds[first_atom:last_atom]
-        df_test.loc[i, target_columns] = [mol_avg_preds[:][j] for j in range(target_columns)]
+        df_test.loc[i, target_columns] = [str(mol_avg_preds[:,j]) for j in range(len(target_columns))]
 
     if output_path.suffix == ".pkl":
         df_test = df_test.reset_index(drop=True)
@@ -334,7 +333,7 @@ def make_prediction_for_models(
             first_atom = slices.index(i)
             last_atom = first_atom + slices.count(i)
             mol_preds = individual_preds[first_atom:last_atom]
-            df_test.loc[i, target_columns] = [mol_preds[:][j] for j in range(mol_preds.shape[1])]
+            df_test.loc[i, target_columns] = [mol_preds[:,j] for j in range(mol_preds.shape[1])]
 
         output_path = output_path.parent / Path(
             str(args.output.stem) + "_individual" + str(output_path.suffix)
