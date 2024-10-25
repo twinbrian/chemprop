@@ -282,11 +282,3 @@ class MPNN(pl.LightningModule):
         model.load_state_dict(state_dict, strict=strict)
 
         return model
-
-class AtomMPNN(MPNN):
-    def fingerprint(self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None
-    ) -> Tensor:
-        """the learned fingerprints for the input molecules"""
-        H_v = self.message_passing(bmg, V_d)
-
-        return H_v if X_d is None else torch.cat((H_v, self.X_d_transform(X_d)), 1)
