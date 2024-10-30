@@ -51,6 +51,7 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         d_e: int = DEFAULT_BOND_FDIM,
         d_h: int = DEFAULT_HIDDEN_DIM,
         bias: bool = False,
+        is_atom_bond_targets: bool = False,
         depth: int = 3,
         dropout: float = 0.0,
         activation: str | Activation = Activation.RELU,
@@ -68,7 +69,8 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         self.hparams["graph_transform"] = graph_transform
         self.hparams["cls"] = self.__class__
 
-        self.W_i, self.W_h, self.W_o, self.W_d = self.setup(d_v, d_e, d_h, d_vd, bias)
+        self.W_i, self.W_h, self.W_o, self.W_d, self.W_o_b = self.setup(d_v, d_e, d_h, d_vd, bias, is_atom_bond_targets)
+        self.is_atom_bond_targets = is_atom_bond_targets
         self.depth = depth
         self.undirected = undirected
         self.dropout = nn.Dropout(dropout)
@@ -88,7 +90,8 @@ class _MessagePassingBase(MessagePassing, HyperparametersMixin):
         d_h: int = DEFAULT_HIDDEN_DIM,
         d_vd: int | None = None,
         bias: bool = False,
-    ) -> tuple[nn.Module, nn.Module, nn.Module, nn.Module | None]:
+        is_atom_bond_targets: bool = False,
+    ) -> tuple[nn.Module, nn.Module, nn.Module, nn.Module | None, nn.Module | None]:
         """setup the weight matrices used in the message passing update functions
 
         Parameters
@@ -246,14 +249,16 @@ class BondMessagePassing(_MessagePassingBase):
         d_h: int = DEFAULT_HIDDEN_DIM,
         d_vd: int | None = None,
         bias: bool = False,
+        is_atom_bond_targets: bool = False,
     ):
         W_i = nn.Linear(d_v + d_e, d_h, bias)
         W_h = nn.Linear(d_h, d_h, bias)
         W_o = nn.Linear(d_v + d_h, d_h)
+        W_o_b = nn.Linear(d_e + d_h, d_h) if is_atom_bond_targets else None
         # initialize W_d only when d_vd is neither 0 nor None
         W_d = nn.Linear(d_h + d_vd, d_h + d_vd) if d_vd else None
 
-        return W_i, W_h, W_o, W_d
+        return W_i, W_h, W_o, W_d, W_o_b
 
     def initialize(self, bmg: BatchMolGraph) -> Tensor:
         return self.W_i(torch.cat([bmg.V[bmg.edge_index[0]], bmg.E], dim=1))
@@ -297,14 +302,16 @@ class AtomMessagePassing(_MessagePassingBase):
         d_h: int = DEFAULT_HIDDEN_DIM,
         d_vd: int | None = None,
         bias: bool = False,
+        is_atom_bond_targets: bool = False,
     ):
         W_i = nn.Linear(d_v, d_h, bias)
         W_h = nn.Linear(d_e + d_h, d_h, bias)
         W_o = nn.Linear(d_v + d_h, d_h)
+        W_o_b = nn.Linear(d_e + d_h, d_h) if is_atom_bond_targets else None
         # initialize W_d only when d_vd is neither 0 nor None
         W_d = nn.Linear(d_h + d_vd, d_h + d_vd) if d_vd else None
 
-        return W_i, W_h, W_o, W_d
+        return W_i, W_h, W_o, W_d, W_o_b
 
     def initialize(self, bmg: BatchMolGraph) -> Tensor:
         return self.W_i(bmg.V[bmg.edge_index[0]])
