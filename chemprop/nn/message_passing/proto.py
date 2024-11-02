@@ -14,7 +14,7 @@ class MessagePassing(nn.Module, HasHParams):
     output_dim: int
 
     @abstractmethod
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None, E_d: Tensor | None = None) -> Tensor:
         """Encode a batch of molecular graphs.
 
         Parameters
@@ -22,8 +22,12 @@ class MessagePassing(nn.Module, HasHParams):
         bmg: BatchMolGraph
             the batch of :class:`~chemprop.featurizers.molgraph.MolGraph`\s to encode
         V_d : Tensor | None, default=None
-            an optional tensor of shape `V x d_vd` containing additional descriptors for each atom
+            an optional tensor of shape `V x d_vd` containing additional vertex descriptors for each atom
             in the batch. These will be concatenated to the learned atomic descriptors and
+            transformed before the readout phase.
+        E_d: Tensor | None, default=None
+            an optional tensor of shape `V x d_ed` containing additional edge descriptors for each atom
+            in the batch. These will be concatenated to the learned bond descriptors and
             transformed before the readout phase.
 
         Returns
