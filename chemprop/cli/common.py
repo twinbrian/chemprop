@@ -125,6 +125,11 @@ def add_common_args(parser: ArgumentParser) -> ArgumentParser:
         "--no-bond-feature-scaling", action="store_true", help="Turn off extra bond feature scaling"
     )
     featurization_args.add_argument(
+        "--no-bond-descriptor-scaling",
+        action="store_true",
+        help="Turn off extra bond descriptor scaling",
+    )
+    featurization_args.add_argument(
         "--atom-features-path",
         nargs="+",
         action="append",

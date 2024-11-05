@@ -22,6 +22,7 @@ class Datum(NamedTuple):
 
     mg: MolGraph
     V_d: np.ndarray | None
+    E_d: np.ndarray | None
     x_d: np.ndarray | None
     y: np.ndarray | None
     weight: float
@@ -178,7 +179,7 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         d = self.data[idx]
         mg = self.mg_cache[idx]
 
-        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
+        return Datum(mg, self.V_ds[idx], self.E_ds[idx], self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def cache(self) -> bool:
@@ -257,6 +258,20 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         self.__V_ds = V_ds
 
     @property
+    def _E_ds(self) -> list[np.ndarray]:
+        return [d.E_d for d in self.data]
+
+    @property
+    def E_ds(self) -> list[np.ndarray]:
+        return self.__E_ds
+
+    @E_ds.setter
+    def E_ds(self, E_ds: list[np.ndarray]):
+        self._validate_attribute(E_ds, "bond descriptors")
+
+        self.__E_ds = E_ds
+
+    @property
     def d_vf(self) -> int:
         """the extra atom feature dimension, if any"""
         return 0 if self.V_fs[0] is None else self.V_fs[0].shape[1]
@@ -271,10 +286,14 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         """the extra atom descriptor dimension, if any"""
         return 0 if self.V_ds[0] is None else self.V_ds[0].shape[1]
 
+    @property
+    def d_ed(self) -> int:
+        return 0 if self.E_ds[0] is None else self.E_ds[0].shape[1]
+
     def normalize_inputs(
         self, key: str = "X_d", scaler: StandardScaler | None = None
     ) -> StandardScaler:
-        VALID_KEYS = {"X_d", "V_f", "E_f", "V_d"}
+        VALID_KEYS = {"X_d", "V_f", "E_f", "V_d", "E_d"}
 
         match key:
             case "X_d":
@@ -285,6 +304,8 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
                 X = None if self.d_ef == 0 else np.concatenate(self.E_fs, axis=0)
             case "V_d":
                 X = None if self.d_vd == 0 else np.concatenate(self.V_ds, axis=0)
+            case "E_d":
+                X = None if self.d_ed == 0 else np.concatenate(self.E_ds, axis=0)
             case _:
                 raise ValueError(f"Invalid feature key! got: {key}. expected one of: {VALID_KEYS}")
 
@@ -303,6 +324,8 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
                 self.E_fs = [scaler.transform(E_f) if E_f.size > 0 else E_f for E_f in self.E_fs]
             case "V_d":
                 self.V_ds = [scaler.transform(V_d) if V_d.size > 0 else V_d for V_d in self.V_ds]
+            case "E_d":
+                self.E_ds = [scaler.transform(E_d) if E_d.size > 0 else E_d for E_d in self.E_ds]
             case _:
                 raise RuntimeError("unreachable code reached!")
 
@@ -315,6 +338,7 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         self.__V_fs = self._V_fs
         self.__E_fs = self._E_fs
         self.__V_ds = self._V_ds
+        self.__E_ds = self._E_ds
 
 
 @dataclass
@@ -371,11 +395,12 @@ class AtomDataset(MoleculeDataset):
         ind_first = slices.index(idx)
         ind_last = ind_first + slices.count(idx)
 
-        # TODO: fix this for lt_mask and gt_mask and weights!
+        # TODO: check for E_d?
 
         return Datum(
             mg,
             self.V_ds[idx],
+            self.E_ds[idx],
             self.X_d[idx],
             self.Y[ind_first:ind_last],
             d.weight,
@@ -388,6 +413,130 @@ class AtomDataset(MoleculeDataset):
         datapoint to their initial, unnormalized values."""
         super().reset()
         self.__Y = self._Y
+
+
+@dataclass
+class BondDataset(AtomDataset):
+    pass
+
+
+class MixedDatum(NamedTuple):
+    mg: MolGraph
+    V_d: np.ndarray | None
+    E_d: np.ndarray | None
+    x_d: np.ndarray | None
+    y: np.ndarray | None
+    weight: float
+    lt_mask: np.ndarray | None
+    gt_mask: np.ndarray | None
+    flag: str
+
+MixedMolGraphDataset: TypeAlias = Dataset[MixedDatum]
+
+
+@dataclass(repr=False, eq=False)
+class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
+    """A :class:`MulticomponentDataset` is a :class:`Dataset` composed of parallel
+    :class:`MoleculeDatasets` and :class:`ReactionDataset`\s"""
+
+    datasets: list[MoleculeDataset | AtomDataset | BondDataset]
+    """the parallel datasets"""
+
+    def __post_init__(self):
+        sizes = [len(dset) for dset in self.datasets]
+        if not all(sizes[0] == size for size in sizes[1:]):
+            raise ValueError(f"Datasets must have all same length! got: {sizes}")
+
+    def __len__(self) -> int:
+        return len(self.datasets[0])
+
+    @property
+    def n_components(self) -> int:
+        return len(self.datasets)
+
+    def __getitem__(self, idx: int) -> list[MixedDatum]:
+        mixed_list = []
+        for dset in self.datasets:
+            if isinstance(dset, MoleculeDataset):
+                flag = "mol"
+            elif isinstance(dset, AtomDataset):
+                flag = "atom"
+            else:
+                flag = "bond"
+            mixed_list.append(MixedDatum(
+                dset[idx].mg, 
+                dset[idx].V_d, 
+                dset[idx].E_d, 
+                dset[idx].x_d, 
+                dset[idx].y, 
+                dset[idx].weight, 
+                dset[idx].lt_mask
+                dset[idx].gt_mask
+                flag
+            ))
+
+        return mixed_list
+
+    @property
+    def smiles(self) -> list[list[str]]:
+        return list(zip(*[dset.smiles for dset in self.datasets]))
+
+    @property
+    def names(self) -> list[list[str]]:
+        return list(zip(*[dset.names for dset in self.datasets]))
+
+    @property
+    def mols(self) -> list[list[Chem.Mol]]:
+        return list(zip(*[dset.mols for dset in self.datasets]))
+
+    def normalize_targets(self, scaler: StandardScaler | None = None) -> StandardScaler:
+        return self.datasets[0].normalize_targets(scaler)
+
+    def normalize_inputs(
+        self, key: str = "X_d", scaler: list[StandardScaler] | None = None
+    ) -> list[StandardScaler]:
+        match scaler:
+            case None:
+                return [
+                    dset.normalize_inputs(key)
+                    if isinstance(dset, MoleculeDataset) or key in RXN_VALID_KEYS
+                    else None
+                    for dset in self.datasets
+                ]
+            case _:
+                assert len(scaler) == len(
+                    self.datasets
+                ), "Number of scalers must match number of datasets!"
+
+                return [
+                    dset.normalize_inputs(key, s)
+                    if isinstance(dset, MoleculeDataset) or key in RXN_VALID_KEYS
+                    else None
+                    for dset, s in zip(self.datasets, scaler)
+                ]
+
+    def reset(self):
+        return [dset.reset() for dset in self.datasets]
+
+    @property
+    def d_xd(self) -> list[int]:
+        return self.datasets[0].d_xd
+
+    @property
+    def d_vf(self) -> list[int]:
+        return sum(dset.d_vf for dset in self.datasets)
+
+    @property
+    def d_ef(self) -> list[int]:
+        return sum(dset.d_ef for dset in self.datasets)
+
+    @property
+    def d_vd(self) -> list[int]:
+        return sum(dset.d_vd for dset in self.datasets)
+
+    @property
+    def d_ed(self) -> list[int]:
+        return sum(dset.d_ed for dset in self.datasets)
 
 
 @dataclass
@@ -427,7 +576,7 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
         d = self.data[idx]
         mg = self.mg_cache[idx]
 
-        return Datum(mg, None, self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
+        return Datum(mg, None, None, self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def smiles(self) -> list[tuple]:
@@ -447,6 +596,10 @@ class ReactionDataset(_MolGraphDatasetMixin, MolGraphDataset):
 
     @property
     def d_vd(self) -> int:
+        return 0
+
+    @property
+    def d_ed(self) -> int:
         return 0
 
 

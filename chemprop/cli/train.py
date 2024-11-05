@@ -569,12 +569,14 @@ def normalize_inputs(train_dset, val_dset, args):
     V_f_transforms = [nn.Identity()] * num_components
     E_f_transforms = [nn.Identity()] * num_components
     V_d_transforms = [None] * num_components
+    E_d_transforms = [None] * num_components
     graph_transforms = []
 
     d_xd = train_dset.d_xd
     d_vf = train_dset.d_vf
     d_ef = train_dset.d_ef
     d_vd = train_dset.d_vd
+    d_ed = train_dset.d_ed
 
     if d_xd > 0 and not args.no_descriptor_scaling:
         scaler = train_dset.normalize_inputs("X_d")
@@ -646,7 +648,22 @@ def normalize_inputs(train_dset, val_dset, args):
             )
             V_d_transforms[i] = ScaleTransform.from_standard_scaler(scaler)
 
-    return X_d_transform, graph_transforms, V_d_transforms
+    if d_ed > 0 and not args.no_bond_descriptor_scaling:
+        scaler = train_dset.normalize_inputs("E_d")
+        val_dset.normalize_inputs("E_d", scaler)
+
+        scalers = [scaler] if not isinstance(scaler, list) else scaler
+
+        for i, scaler in enumerate(scalers):
+            if scaler is None:
+                continue
+
+            logger.info(
+                f"Bond descriptors for mol {i}: loc = {np.array2string(scaler.mean_, precision=3)}, scale = {np.array2string(scaler.scale_, precision=3)}"
+            )
+            E_d_transforms[i] = ScaleTransform.from_standard_scaler(scaler)
+
+    return X_d_transform, graph_transforms, V_d_transforms, E_d_transforms
 
 
 def load_and_use_pretrained_model_scalers(model_path: Path, train_dset, val_dset) -> None:
@@ -691,6 +708,11 @@ def load_and_use_pretrained_model_scalers(model_path: Path, train_dset, val_dset
             scaler = blocks[i].V_d_transform.to_standard_scaler()
             train_dsets[i].normalize_inputs("V_d", scaler)
             val_dsets[i].normalize_inputs("V_d", scaler)
+
+        if isinstance(blocks[i].E_d_transform, ScaleTransform):
+            scaler = blocks[i].E_d_transform.to_standard_scaler()
+            train_dsets[i].normalize_inputs("E_d", scaler)
+            val_dsets[i].normalize_inputs("E_d", scaler)
 
     if isinstance(_model.predictor.output_transform, UnscaleTransform):
         scaler = _model.predictor.output_transform.to_standard_scaler()
@@ -916,11 +938,11 @@ def build_model(
     args,
     train_dset: MolGraphDataset | MulticomponentDataset,
     output_transform: UnscaleTransform,
-    input_transforms: tuple[ScaleTransform, list[GraphTransform], list[ScaleTransform]],
+    input_transforms: tuple[ScaleTransform, list[GraphTransform], list[ScaleTransform], list[ScaleTransform]],
 ) -> MPNN:
     mp_cls = AtomMessagePassing if args.atom_messages else BondMessagePassing
 
-    X_d_transform, graph_transforms, V_d_transforms = input_transforms
+    X_d_transform, graph_transforms, V_d_transforms, E_d_transforms = input_transforms
     if isinstance(train_dset, MulticomponentDataset):
         mp_blocks = [
             mp_cls(
@@ -938,6 +960,7 @@ def build_model(
                 dropout=args.dropout,
                 activation=args.activation,
                 V_d_transform=V_d_transforms[i],
+                E_d_transform=E_d_transforms[i],
                 graph_transform=graph_transforms[i],
             )
             for i in range(train_dset.n_components)

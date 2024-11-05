@@ -304,7 +304,7 @@ class MPNN(pl.LightningModule):
         return model
 
 
-class BondMPNN(pl.LightningModule):
+class MolAtomBondMPNN(pl.LightningModule):
     def __init__(
         self,
         message_passing: MessagePassing,
@@ -426,21 +426,26 @@ class BondMPNN(pl.LightningModule):
         H_g, H_v, H_b = self.fingerprint(bmg, V_d, E_d, X_d)
         return self.mol_predictor(H_g), self.atom_predictor(H_v), self.bond_predictor(H_b)
 
-    def training_step(self, batch: TrainingBatch, batch_idx):
-        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
+    def training_step(self, batch: MixedTrainingBatch, batch_idx):
+        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
+        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
 
         #find a way to split targets, weights, masks.
 
-        mask = targets.isfinite()
-        targets = targets.nan_to_num(nan=0.0)
+        mol_mask = mol_targets.isfinite()
+        atom_mask = atom_targets.isfinite()
+        bond_mask = bond_targets.isfinite()
+        mol_targets = mol_targets.nan_to_num(nan=0.0)
+        atom_targets = atom_targets.nan_to_num(nan=0.0)
+        bond_targets = bond_targets.nan_to_num(nan=0.0)
 
         Z_g, Z_v, Z_b = self.fingerprint(bmg, V_d, E_d, X_d)
         mol_preds = self.mol_predictor.train_step(Z_g)
-        mol_l = self.mol_criterion(mol_preds, targets, mask, weights, lt_mask, gt_mask)
+        mol_l = self.mol_criterion(mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
         atom_preds = self.atom_predictor.train_step(Z_v)
-        atom_l = self.atom_criterion(atom_preds, targets, mask, weights, lt_mask, gt_mask)
+        atom_l = self.atom_criterion(atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
         bond_preds = self.bond_predictor.train_step(Z_b)
-        bond_l = self.bond_criterion(bond_preds, targets, mask, weights, lt_mask, gt_mask)        
+        bond_l = self.bond_criterion(bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)        
 
         self.log("mol_train_loss", self.mol_criterion, prog_bar=True, on_epoch=True)
         self.log("atom_train_loss", self.atom_criterion, prog_bar=True, on_epoch=True)
@@ -454,54 +459,66 @@ class BondMPNN(pl.LightningModule):
         self.atom_predictor.output_transform.train()
         self.bond_predictor.output_transform.train()
 
-    def validation_step(self, batch: TrainingBatch, batch_idx: int = 0):
+    def validation_step(self, batch: MixedTrainingBatch, batch_idx: int = 0):
         self._evaluate_batch(batch, "val")
 
-        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
+        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
+        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
 
-        mask = targets.isfinite()
-        targets = targets.nan_to_num(nan=0.0)
+        mol_mask = mol_targets.isfinite()
+        atom_mask = atom_targets.isfinite()
+        bond_mask = bond_targets.isfinite()
+        mol_targets = mol_targets.nan_to_num(nan=0.0)
+        atom_targets = atom_targets.nan_to_num(nan=0.0)
+        bond_targets = bond_targets.nan_to_num(nan=0.0)
 
         Z_g, Z_v, Z_b = self.fingerprint(bmg, V_d, E_d, X_d)
         mol_preds = self.mol_predictor.train_step(Z_g)
         atom_preds = self.atom_predictor.train_step(Z_v)
         bond_preds = self.bond_predictor.train_step(Z_b)
 
-        self.metrics[-1](mol_preds, targets, mask, weights, lt_mask, gt_mask)
+        self.metrics[-1](mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
         self.log("mol_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
-        self.metrics[-1](atom_preds, targets, mask, weights, lt_mask, gt_mask)
+        self.metrics[-1](atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
         self.log("atom_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
-        self.metrics[-1](bond_preds, targets, mask, weights, lt_mask, gt_mask)
+        self.metrics[-1](bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)
         self.log("bond_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
-    def test_step(self, batch: TrainingBatch, batch_idx: int = 0):
+    def test_step(self, batch: MixedTrainingBatch, batch_idx: int = 0):
         self._evaluate_batch(batch, "test")
 
-    def _evaluate_batch(self, batch: TrainingBatch, label: str) -> None:
-        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
+    def _evaluate_batch(self, batch: MixedTrainingBatch, label: str) -> None:
+        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
+        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
 
-        mask = targets.isfinite()
-        targets = targets.nan_to_num(nan=0.0)
+        mol_mask = mol_targets.isfinite()
+        atom_mask = atom_targets.isfinite()
+        bond_mask = bond_targets.isfinite()
+        mol_targets = mol_targets.nan_to_num(nan=0.0)
+        atom_targets = atom_targets.nan_to_num(nan=0.0)
+        bond_targets = bond_targets.nan_to_num(nan=0.0)
         mol_preds, atom_preds, bond_preds = self(bmg, V_d, E_d, X_d)
-        weights = torch.ones_like(weights)
+        mol_weights = torch.ones_like(mol_weights)
+        atom_weights = torch.ones_like(atom_weights)
+        bond_weights = torch.ones_like(bond_weights)
 
         if self.predictor.n_targets > 1:
             preds = preds[..., 0]
 
         for m in self.metrics[:-1]:
-            m.update(mol_preds, targets, mask, weights, lt_mask, gt_mask)
-            m.update(atom_preds, targets, mask, weights, lt_mask, gt_mask)
-            m.update(bond_preds, targets, mask, weights, lt_mask, gt_mask)            
+            m.update(mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
+            m.update(atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
+            m.update(bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)            
             self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
 
-    def predict_step(self, batch: TrainingBatch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
+    def predict_step(self, batch: MixedTrainingBatch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         """Return the predictions of the input batch
 
         Parameters
         ----------
-        batch : TrainingBatch
+        batch : MixedTrainingBatch
             the input batch
 
         Returns

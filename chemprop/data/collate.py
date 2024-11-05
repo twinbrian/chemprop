@@ -83,7 +83,7 @@ class TrainingBatch(NamedTuple):
 
 
 def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
-    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
+    mgs, V_ds, E_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
 
     # if ys[0] is not None:
     #     dim = ys[0].shape[1]
@@ -120,6 +120,72 @@ def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
         weights_tensor,
         None if lt_masks[0] is None else torch.from_numpy(np_lt),
         None if gt_masks[0] is None else torch.from_numpy(np_gt),
+    )
+
+
+class MixedTrainingBatch(NamedTuple):
+    bmg: BatchMolGraph
+    V_d: Tensor | None
+    X_d: Tensor | None
+    mol_Y: Tensor | None
+    atom_Y: Tensor | None
+    bond_Y: Tensor | None
+    mol_w: Tensor
+    atom_w: Tensor
+    bond_w: Tensor
+    mol_lt_mask: Tensor | None
+    atom_lt_mask: Tensor | None
+    bond_lt_mask: Tensor | None
+    mol_gt_mask: Tensor | None
+    atom_gt_mask: Tensor | None
+    bond_gt_mask: Tensor | None
+
+
+def mixed_collate_batch(batch: Iterable[MixedDatum]) -> MixedTrainingBatch:
+    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks, flags = zip(*batch)
+
+    mol_indices, atom_indices, bond_indices = [], [], []
+    for y in range(len(ys)):
+        if flags[y] == "mol":
+            mol_indices.append(y)
+        elif flags[y] == "atom":
+            atom_indices.append(y)
+        else:
+            bond_indices.append(y)
+
+    mol_np_y = np.vstack([ys[i] for i in mol_indices])
+    atom_np_y = np.vstack([ys[i] for i in atom_indices])
+    atom_np_y = np.vstack([ys[i] for i in bond_indices])
+    mol_np_lt = np.vstack([lt_masks[i] for i in mol_indices])
+    atom_np_lt = np.vstack([lt_masks[i] for i in atom_indices])
+    bond_np_lt = np.vstack([lt_masks[i] for i in bond_indices])
+    mol_np_gt = np.vstack([gt_masks[i] for i in mol_indices])
+    atom_np_gt = np.vstack([gt_masks[i] for i in atom_indices])
+    bond_np_gt = np.vstack([gt_masks[i] for i in bond_indices])
+
+    mol_weights_tensor = torch.tensor(weights, dtype=torch.float).unsqueeze(1)
+    num_atoms = torch.tensor([ys[j].shape[0] for j in atom_indices])
+    atom_weights_tensor = torch.repeat_interleave(mol_weights_tensor, repeats=num_atoms)
+    num_bonds = torch.tensor([ys[j].shape[0] for j in bond_indices])
+    bond_weights_tensor = torch.repeat_interleave(mol_weights_tensor, repeats=num_bonds)
+
+    return MixedTrainingBatch(
+        BatchMolGraph(mgs),
+        None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
+        None if E_ds[0] is None else torch.from_numpy(np.concatenate(E_ds)).float(),
+        None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
+        None if mol_indices[0] is None else torch.from_numpy(mol_np_y).float(),
+        None if atom_indices[0] is None else torch.from_numpy(atom_np_y).float(),
+        None if bond_indices[0] is None else torch.from_numpy(bond_np_y).float(),
+        mol_weights_tensor,
+        atom_weights_tensor,
+        bond_weights_tensor,
+        None if mol_indices[0] is None else torch.from_numpy(mol_np_lt),
+        None if atom_indices[0] is None else torch.from_numpy(atom_np_lt),
+        None if bond_indices[0] is None else torch.from_numpy(bond_np_lt),
+        None if mol_indices[0] is None else torch.from_numpy(mol_np_gt),
+        None if atom_indices[0] is None else torch.from_numpy(atom_np_gt),
+        None if bond_indices[0] is None else torch.from_numpy(bond_np_gt),
     )
 
 
