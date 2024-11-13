@@ -420,29 +420,17 @@ class BondDataset(AtomDataset):
     pass
 
 
-class MixedDatum(NamedTuple):
-    mg: MolGraph
-    V_d: np.ndarray | None
-    E_d: np.ndarray | None
-    x_d: np.ndarray | None
-    y: np.ndarray | None
-    weight: float
-    lt_mask: np.ndarray | None
-    gt_mask: np.ndarray | None
-    flag: str
-
-MixedMolGraphDataset: TypeAlias = Dataset[MixedDatum]
-
-
 @dataclass(repr=False, eq=False)
 class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
     """A :class:`MulticomponentDataset` is a :class:`Dataset` composed of parallel
     :class:`MoleculeDatasets` and :class:`ReactionDataset`\s"""
 
-    datasets: list[MoleculeDataset | AtomDataset | BondDataset]
-    """the parallel datasets"""
+    mol_dataset: MoleculeDataset
+    atom_dataset: AtomDataset
+    bond_dataset: BondDataset
 
     def __post_init__(self):
+        self.datasets = [mol_dataset, atom_dataset, bond_dataset]
         sizes = [len(dset) for dset in self.datasets]
         if not all(sizes[0] == size for size in sizes[1:]):
             raise ValueError(f"Datasets must have all same length! got: {sizes}")
@@ -454,7 +442,7 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
     def n_components(self) -> int:
         return len(self.datasets)
 
-    def __getitem__(self, idx: int) -> list[MixedDatum]:
+    def __getitem__(self, idx: int) -> list[Datum]:
         mixed_list = []
         for dset in self.datasets:
             if isinstance(dset, MoleculeDataset):
@@ -470,9 +458,9 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
                 dset[idx].x_d, 
                 dset[idx].y, 
                 dset[idx].weight, 
-                dset[idx].lt_mask
-                dset[idx].gt_mask
-                flag
+                dset[idx].lt_mask,
+                dset[idx].gt_mask,
+                flag,
             ))
 
         return mixed_list

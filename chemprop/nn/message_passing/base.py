@@ -276,7 +276,7 @@ class BondMessagePassing(_MessagePassingBase):
         return M_all - M_rev
 
 
-class BondMessagePassingForBonds(BondMessagePassing):
+class MixedBondMessagePassing(BondMessagePassing):
     def finalize(self, H: Tensor, M: Tensor, V: Tensor, E: Tensor, V_d: Tensor | None, E_d: Tensor | None) -> tuple[Tensor]:
         H_v = self.W_o(torch.cat((V, M), dim=1))
         H_v = self.tau(H_v)
@@ -376,7 +376,7 @@ class AtomMessagePassing(_MessagePassingBase):
         )[bmg.edge_index[0]]
 
 
-class AtomMessagePassingForBonds(AtomMessagePassing):
+class MixedAtomMessagePassing(AtomMessagePassing):
     def finalize(self, H: Tensor, M: Tensor, V: Tensor, E: Tensor, V_d: Tensor | None, E_d: Tensor | None) -> tuple[Tensor]:
         H_v = self.W_o(torch.cat((V, M), dim=1))
         H_v = self.tau(H_v)
@@ -416,3 +416,10 @@ class AtomMessagePassingForBonds(AtomMessagePassing):
 
             M = self.message(H, bmg)
             H = self.update(M, H_0)
+
+        index_torch = bmg.edge_index[1].unsqueeze(1).repeat(1, H.shape[1])
+        M = torch.zeros(len(bmg.V), H.shape[1], dtype=H.dtype, device=H.device).scatter_reduce_(
+            0, index_torch, H, reduce="sum", include_self=False
+        )
+        return self.finalize(H, M, bmg.V, bmg.E, V_d, E_d)
+

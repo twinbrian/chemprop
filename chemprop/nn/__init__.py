@@ -9,7 +9,9 @@ from .agg import (
 )
 from .message_passing import (
     AtomMessagePassing,
+    MixedAtomMessagePassing,
     BondMessagePassing,
+    MixedBondMessagePassing,
     MessagePassing,
     MulticomponentMessagePassing,
 )
@@ -108,7 +110,9 @@ __all__ = [
     "QuantileLoss",
     "MessagePassing",
     "AtomMessagePassing",
+    "MixedAtomMessagePassing",
     "BondMessagePassing",
+    "MixedBondMessagePassing",
     "MulticomponentMessagePassing",
     "Predictor",
     "PredictorRegistry",

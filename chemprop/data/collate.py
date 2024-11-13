@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from chemprop.data.datasets import Datum
+from chemprop.data.datasets import MixedDatum, Datum
 from chemprop.data.molgraph import MolGraph
 
 
@@ -142,7 +142,7 @@ class MixedTrainingBatch(NamedTuple):
 
 
 def mixed_collate_batch(batch: Iterable[MixedDatum]) -> MixedTrainingBatch:
-    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks, flags = zip(*batch)
+    mgs, V_ds, E_ds, x_ds, ys, weights, lt_masks, gt_masks, flags = zip(*batch)
 
     mol_indices, atom_indices, bond_indices = [], [], []
     for y in range(len(ys)):
@@ -153,15 +153,17 @@ def mixed_collate_batch(batch: Iterable[MixedDatum]) -> MixedTrainingBatch:
         else:
             bond_indices.append(y)
 
-    mol_np_y = np.vstack([ys[i] for i in mol_indices])
-    atom_np_y = np.vstack([ys[i] for i in atom_indices])
-    atom_np_y = np.vstack([ys[i] for i in bond_indices])
-    mol_np_lt = np.vstack([lt_masks[i] for i in mol_indices])
-    atom_np_lt = np.vstack([lt_masks[i] for i in atom_indices])
-    bond_np_lt = np.vstack([lt_masks[i] for i in bond_indices])
-    mol_np_gt = np.vstack([gt_masks[i] for i in mol_indices])
-    atom_np_gt = np.vstack([gt_masks[i] for i in atom_indices])
-    bond_np_gt = np.vstack([gt_masks[i] for i in bond_indices])
+    mol_np_y = None if mol_indices[0] is None else torch.from_numpy(np.vstack([ys[i] for i in mol_indices])).float()
+    atom_np_y = None if len(atom_indices) == 0 else torch.from_numpy(np.vstack([ys[i] for i in atom_indices])).float()
+    bond_np_y = None if len(bond_indices) == 0 else torch.from_numpy(np.vstack([ys[i] for i in bond_indices])).float()
+    for i in mol_indices:
+        print(lt_masks[i])
+    mol_np_lt = None if len(mol_indices) == 0  else torch.from_numpy(np.vstack([lt_masks[i] for i in mol_indices])).float()
+    atom_np_lt = None if len(atom_indices) == 0 else torch.from_numpy(np.vstack([lt_masks[i] for i in atom_indices])).float()
+    bond_np_lt = None if len(bond_indices) == 0 else torch.from_numpy(np.vstack([lt_masks[i] for i in bond_indices])).float()
+    mol_np_gt = None if len(mol_indices) == 0  else torch.from_numpy(np.vstack([gt_masks[i] for i in mol_indices])).float()
+    atom_np_gt = None if len(atom_indices) == 0 else torch.from_numpy(np.vstack([gt_masks[i] for i in atom_indices])).float()
+    bond_np_gt = None if len(bond_indices) == 0 else torch.from_numpy(np.vstack([gt_masks[i] for i in bond_indices])).float()
 
     mol_weights_tensor = torch.tensor(weights, dtype=torch.float).unsqueeze(1)
     num_atoms = torch.tensor([ys[j].shape[0] for j in atom_indices])
@@ -174,20 +176,26 @@ def mixed_collate_batch(batch: Iterable[MixedDatum]) -> MixedTrainingBatch:
         None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
         None if E_ds[0] is None else torch.from_numpy(np.concatenate(E_ds)).float(),
         None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
-        None if mol_indices[0] is None else torch.from_numpy(mol_np_y).float(),
-        None if atom_indices[0] is None else torch.from_numpy(atom_np_y).float(),
-        None if bond_indices[0] is None else torch.from_numpy(bond_np_y).float(),
+        mol_np_y,
+        atom_np_y,
+        bond_np_y,
         mol_weights_tensor,
         atom_weights_tensor,
         bond_weights_tensor,
-        None if mol_indices[0] is None else torch.from_numpy(mol_np_lt),
-        None if atom_indices[0] is None else torch.from_numpy(atom_np_lt),
-        None if bond_indices[0] is None else torch.from_numpy(bond_np_lt),
-        None if mol_indices[0] is None else torch.from_numpy(mol_np_gt),
-        None if atom_indices[0] is None else torch.from_numpy(atom_np_gt),
-        None if bond_indices[0] is None else torch.from_numpy(bond_np_gt),
+        mol_np_lt,
+        atom_np_lt,
+        bond_np_lt,
+        mol_np_gt,
+        atom_np_gt,
+        bond_np_gt,
     )
 
+def mixed_multi_collate_batch(batches: Iterable[Iterable[MixedDatum]]) -> MixedMultiTrainingBatch:
+    tbs = [mixed_collate_batch(batch) for batch in zip(*batches)]
+    return MixedMultiTrainingBatch (
+        *[ [getattr(tb, attr) for tb in tbs] for attr in ('bmg', 'V_d', 'X_d', 'mol_Y', 'atom_Y', 'bond_Y', 'mol_w', 'atom_w', 
+            'bond_w', 'mol_lt_mask', 'atom_lt_mask', 'bond_lt_mask', 'mol_gt_mask', 'atom_gt_mask', 'bond_gt_mask') ]
+    )
 
 class MulticomponentTrainingBatch(NamedTuple):
     bmgs: list[BatchMolGraph]

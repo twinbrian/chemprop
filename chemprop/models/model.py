@@ -329,7 +329,9 @@ class MolAtomBondMPNN(pl.LightningModule):
             {
                 "message_passing": message_passing.hparams,
                 "agg": agg.hparams,
-                "predictor": predictor.hparams,
+                "mol_predictor": mol_predictor.hparams,
+                "atom_predictor": atom_predictor.hparams,
+                "bond_predictor": bond_predictor.hparams,
             }
         )
 
@@ -342,10 +344,22 @@ class MolAtomBondMPNN(pl.LightningModule):
 
         self.X_d_transform = X_d_transform if X_d_transform is not None else nn.Identity()
 
-        self.metrics = (
-            nn.ModuleList([*metrics, self.criterion.clone()])
+        self.mol_metrics = (
+            nn.ModuleList([*metrics, self.mol_criterion.clone()])
             if metrics
-            else nn.ModuleList([self.predictor._T_default_metric(), self.criterion.clone()])
+            else nn.ModuleList([self.mol_predictor._T_default_metric(), self.mol_criterion.clone()])
+        )
+
+        self.atom_metrics = (
+            nn.ModuleList([*metrics, self.atom_criterion.clone()])
+            if metrics
+            else nn.ModuleList([self.atom_predictor._T_default_metric(), self.atom_criterion.clone()])
+        )
+
+        self.bond_metrics = (
+            nn.ModuleList([*metrics, self.bond_criterion.clone()])
+            if metrics
+            else nn.ModuleList([self.bond_predictor._T_default_metric(), self.bond_criterion.clone()])
         )
 
         self.warmup_epochs = warmup_epochs
@@ -451,7 +465,7 @@ class MolAtomBondMPNN(pl.LightningModule):
         self.log("atom_train_loss", self.atom_criterion, prog_bar=True, on_epoch=True)
         self.log("bond_train_loss", self.bond_criterion, prog_bar=True, on_epoch=True)
 
-        return mol_l, atom_l, bond_l
+        return mol_l + atom_l + bond_l
 
     def on_validation_model_eval(self) -> None:
         self.eval()
@@ -477,13 +491,13 @@ class MolAtomBondMPNN(pl.LightningModule):
         atom_preds = self.atom_predictor.train_step(Z_v)
         bond_preds = self.bond_predictor.train_step(Z_b)
 
-        self.metrics[-1](mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
+        self.mol_metrics[-1](mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
         self.log("mol_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
-        self.metrics[-1](atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
+        self.atom_metrics[-1](atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
         self.log("atom_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
-        self.metrics[-1](bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)
+        self.bond_metrics[-1](bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)
         self.log("bond_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
 
     def test_step(self, batch: MixedTrainingBatch, batch_idx: int = 0):
@@ -507,9 +521,13 @@ class MolAtomBondMPNN(pl.LightningModule):
         if self.predictor.n_targets > 1:
             preds = preds[..., 0]
 
-        for m in self.metrics[:-1]:
+        for m in self.mol_metrics[:-1]:
             m.update(mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
+            self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
+        for m in self.atom_metrics[:-1]:
             m.update(atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
+            self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
+        for m in self.bond_metrics[:-1]:
             m.update(bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)            
             self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
 

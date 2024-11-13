@@ -33,6 +33,11 @@ def add_common_args(parser: ArgumentParser) -> ArgumentParser:
         action="store_true",
         help="Whether or not the targets are for atom/bond type versus molecule type",
     )
+    data_args.add_argument(
+        "--is-mixed",
+        action="store_true",
+        help="If some of the targets are intended for molecules, some for atoms, and some for bonds"
+    )
     dataloader_args = parser.add_argument_group("Dataloader args")
     dataloader_args.add_argument(
         "-n",

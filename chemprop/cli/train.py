@@ -37,6 +37,7 @@ from chemprop.cli.utils.args import uppercase
 from chemprop.data import (
     MoleculeDataset,
     MolGraphDataset,
+    MolAtomBondDataset,
     MulticomponentDataset,
     ReactionDatapoint,
     SplitType,
@@ -896,21 +897,21 @@ def build_datasets(args, train_data, val_data, test_data):
     multicomponent = len(train_data) > 1
     if multicomponent:
         train_dsets = [
-            make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
-            for data in train_data
+            make_dataset(train_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+            for data in range(len(train_data))
         ]
         val_dsets = [
-            make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
-            for data in val_data
+            make_dataset(val_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+            for data in range(len(val_data))
         ]
-        train_dset = MulticomponentDataset(train_dsets)
-        val_dset = MulticomponentDataset(val_dsets)
+        train_dset = MolAtomBondDataset(train_dsets) if args.is_mixed else MulticomponentDataset(train_dsets)
+        val_dset = MolAtomBondDataset(val_dsets) if args.is_mixed else MulticomponentDataset(val_dsets)
         if len(test_data[0]) > 0:
             test_dsets = [
-                make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
-                for data in test_data
+                make_dataset(test_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+                for data in range(len(test_data))
             ]
-            test_dset = MulticomponentDataset(test_dsets)
+            test_dset = MolAtomBondDataset(test_dsets) if args.is_mixed else MulticomponentDataset(test_dsets)
         else:
             test_dset = None
     else:
@@ -936,7 +937,7 @@ def build_datasets(args, train_data, val_data, test_data):
 
 def build_model(
     args,
-    train_dset: MolGraphDataset | MulticomponentDataset,
+    train_dset: MolGraphDataset | MolAtomBondDataset | MulticomponentDataset,
     output_transform: UnscaleTransform,
     input_transforms: tuple[ScaleTransform, list[GraphTransform], list[ScaleTransform], list[ScaleTransform]],
 ) -> MPNN:
