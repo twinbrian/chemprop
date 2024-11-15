@@ -296,7 +296,7 @@ class MixedBondMessagePassing(BondMessagePassing):
         if E_d is not None:
             E_d = self.E_d_transform(E_d)
             try:
-                H_b = self.W_ed(torch.cat((H_b, V_d), dim=1))
+                H_b = self.W_ed(torch.cat((H_b, E_d), dim=1))
                 H_b = self.dropout(H_b)
             except RuntimeError:
                 raise InvalidShapeError("E_d", E_d.shape, [len(H_b), self.W_ed.in_features])

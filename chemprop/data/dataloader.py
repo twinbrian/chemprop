@@ -2,7 +2,7 @@ import warnings
 
 from torch.utils.data import DataLoader
 
-from chemprop.data.collate import collate_batch, mixed_collate_batch, mixed_multi_collate_batch, collate_multicomponent
+from chemprop.data.collate import collate_batch, mixed_collate_batch, collate_multicomponent
 from chemprop.data.datasets import (
     AtomDataset,
     MoleculeDataset,
@@ -53,7 +53,7 @@ def build_dataloader(
     if isinstance(dataset, MulticomponentDataset):
         collate_fn = collate_multicomponent
     elif isinstance(dataset, MolAtomBondDataset):
-        collate_fn = mixed_multi_collate_batch
+        collate_fn = mixed_collate_batch
     else:
         collate_fn = collate_batch
 

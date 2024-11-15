@@ -421,7 +421,7 @@ class BondDataset(AtomDataset):
 
 
 @dataclass(repr=False, eq=False)
-class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
+class MolAtomBondDataset(_MolGraphDatasetMixin, MolGraphDataset):
     """A :class:`MulticomponentDataset` is a :class:`Dataset` composed of parallel
     :class:`MoleculeDatasets` and :class:`ReactionDataset`\s"""
 
@@ -430,7 +430,7 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
     bond_dataset: BondDataset
 
     def __post_init__(self):
-        self.datasets = [mol_dataset, atom_dataset, bond_dataset]
+        self.datasets = [self.mol_dataset, self.atom_dataset, self.bond_dataset]
         sizes = [len(dset) for dset in self.datasets]
         if not all(sizes[0] == size for size in sizes[1:]):
             raise ValueError(f"Datasets must have all same length! got: {sizes}")
@@ -445,13 +445,7 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
     def __getitem__(self, idx: int) -> list[Datum]:
         mixed_list = []
         for dset in self.datasets:
-            if isinstance(dset, MoleculeDataset):
-                flag = "mol"
-            elif isinstance(dset, AtomDataset):
-                flag = "atom"
-            else:
-                flag = "bond"
-            mixed_list.append(MixedDatum(
+            mixed_list.append(Datum(
                 dset[idx].mg, 
                 dset[idx].V_d, 
                 dset[idx].E_d, 
@@ -460,7 +454,6 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
                 dset[idx].weight, 
                 dset[idx].lt_mask,
                 dset[idx].gt_mask,
-                flag,
             ))
 
         return mixed_list
@@ -480,7 +473,7 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MixedMolGraphDataset):
     def normalize_targets(self, scaler: StandardScaler | None = None) -> StandardScaler:
         return self.datasets[0].normalize_targets(scaler)
 
-    def normalize_inputs(
+    def normalize_inputs( #CHANGE
         self, key: str = "X_d", scaler: list[StandardScaler] | None = None
     ) -> list[StandardScaler]:
         match scaler:

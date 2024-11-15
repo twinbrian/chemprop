@@ -346,6 +346,19 @@ def save_predictions(args, model, output_columns, test_preds, test_uncs, output_
     df_test = pd.read_csv(
         args.test_path, header=None if args.no_header_row else "infer", index_col=False
     )
+
+    if args.mixed:
+        df_test.iloc[:, mol_cols] = mol_average_preds.tolist()
+        for i in range(len(df_test)):
+            first_atom = atom_slices.index(i)
+            last_atom = first_atom + atom_slices.count(i)
+            atom_preds = atom_average_preds[first_atom:last_atom]
+            df_test.iloc[i, atom_cols] = [str(atom_preds[:,j].tolist()) for j in range(len(atom_cols))]
+
+            first_bond = bond_slices.index(i)
+            last_bond = first_bond + bond_slices.count(i)
+            bond_preds = bond_average_preds[first_atom:last_atom]
+            df_test.iloc[i, bond_cols] = [str(bond_preds[:,j].tolist()) for j in range(len(bond_cols))]
     if args.is_atom_bond_targets:
         slices = test_loader.dataset._slices()
         for i in range(len(df_test)):

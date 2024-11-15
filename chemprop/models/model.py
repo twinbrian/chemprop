@@ -139,7 +139,7 @@ class MPNN(pl.LightningModule):
         return self.predictor(self.fingerprint(bmg, V_d, X_d))
 
     def training_step(self, batch: TrainingBatch, batch_idx):
-        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
+        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
@@ -159,7 +159,7 @@ class MPNN(pl.LightningModule):
     def validation_step(self, batch: TrainingBatch, batch_idx: int = 0):
         self._evaluate_batch(batch, "val")
 
-        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
+        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
@@ -173,7 +173,7 @@ class MPNN(pl.LightningModule):
         self._evaluate_batch(batch, "test")
 
     def _evaluate_batch(self, batch: TrainingBatch, label: str) -> None:
-        bmg, V_d, X_d, targets, weights, lt_mask, gt_mask = batch
+        bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch
 
         mask = targets.isfinite()
         targets = targets.nan_to_num(nan=0.0)
@@ -208,7 +208,7 @@ class MPNN(pl.LightningModule):
 
             * multiclass classification: ``n x t x c``, where ``c`` is the number of classes
         """
-        bmg, X_vd, X_d, *_ = batch
+        bmg, X_vd, X_ed, X_d, *_ = batch
 
         return self(bmg, X_vd, X_d)
 
@@ -338,29 +338,12 @@ class MolAtomBondMPNN(pl.LightningModule):
         self.message_passing = message_passing
         self.agg = agg
         self.bn = nn.BatchNorm1d(self.message_passing.output_dim) if batch_norm else nn.Identity()
-        self.mol_predictor = mol_predictor
-        self.atom_predictor = atom_predictor
-        self.bond_predictor = bond_predictor
+        self.predictors = nn.ModuleList([mol_predictor, atom_predictor, bond_predictor])
 
         self.X_d_transform = X_d_transform if X_d_transform is not None else nn.Identity()
 
-        self.mol_metrics = (
-            nn.ModuleList([*metrics, self.mol_criterion.clone()])
-            if metrics
-            else nn.ModuleList([self.mol_predictor._T_default_metric(), self.mol_criterion.clone()])
-        )
-
-        self.atom_metrics = (
-            nn.ModuleList([*metrics, self.atom_criterion.clone()])
-            if metrics
-            else nn.ModuleList([self.atom_predictor._T_default_metric(), self.atom_criterion.clone()])
-        )
-
-        self.bond_metrics = (
-            nn.ModuleList([*metrics, self.bond_criterion.clone()])
-            if metrics
-            else nn.ModuleList([self.bond_predictor._T_default_metric(), self.bond_criterion.clone()])
-        )
+        self.metrics = nn.ModuleList([nn.ModuleList([*metrics, self.criterion[i].clone()]) if metrics 
+                else nn.ModuleList([self.predictor[i]._T_default_metric(), self.criterion[i].clone()]) for i in range(3)])
 
         self.warmup_epochs = warmup_epochs
         self.init_lr = init_lr
@@ -368,170 +351,116 @@ class MolAtomBondMPNN(pl.LightningModule):
         self.final_lr = final_lr
 
     @property
-    def mol_output_dim(self) -> int:
-        return self.mol_predictor.output_dim
+    def output_dim(self) -> list[int]:
+        return [self.predictors[0].output_dim, self.predictors[1].output_dim, self.predictors[2].output_dim]
 
     @property
-    def atom_output_dim(self) -> int:
-        return self.atom_predictor.output_dim
+    def n_tasks(self) -> list[int]:
+        return [self.predictors[0].n_tasks, self.predictors[1].n_tasks, self.predictors[2].n_tasks]
 
     @property
-    def bond_output_dim(self) -> int:
-        return self.bond_predictor.output_dim
+    def n_targets(self) -> list[int]:
+        return [self.predictors[0].n_targets, self.predictors[1].n_targets, self.predictors[2].n_targets]
 
     @property
-    def mol_n_tasks(self) -> int:
-        return self.mol_predictor.n_tasks
-
-    @property
-    def atom_n_tasks(self) -> int:
-        return self.atom_predictor.n_tasks
-
-    @property
-    def bond_n_tasks(self) -> int:
-        return self.bond_predictor.n_tasks
-
-    @property
-    def mol_n_targets(self) -> int:
-        return self.mol_predictor.n_targets
-
-    @property
-    def atom_n_targets(self) -> int:
-        return self.atom_predictor.n_targets
-
-    @property
-    def bond_n_targets(self) -> int:
-        return self.bond__predictor.n_targets
-
-    @property
-    def mol_criterion(self) -> ChempropMetric:
-        return self.mol_predictor.criterion
-
-    @property
-    def atom_criterion(self) -> ChempropMetric:
-        return self.atom_predictor.criterion
-
-    @property
-    def bond_criterion(self) -> ChempropMetric:
-        return self.bond_predictor.criterion
+    def criterion(self) -> list[ChempropMetric]:
+        return [self.predictors[0].criterion, self.predictors[1].criterion, self.predictors[2].criterion]
 
     def fingerprint(
         self, bmg: BatchMolGraph, V_d: Tensor | None = None, E_d: Tensor | None = None, X_d: Tensor | None = None
-    ) -> Tensor:
+    ) -> list[Tensor]:
         """the learned fingerprints for the input molecules"""
         H_v, H_b = self.message_passing(bmg, V_d, E_d)
         H_g = self.agg(H_v, bmg.batch)
         H_g = self.bn(H_g)
         H_g = H_g if X_d is None else torch.cat((H, self.X_d_transform(X_d)), 1)
 
-        return H_g, H_v, H_b
+        H_b = torch.cat([H_b, H_b[bmg.rev_edge_index]], 1)
+        return [H_g, H_v, H_b]
 
     def encoding(
         self, bmg: BatchMolGraph, V_d: Tensor | None = None, E_d: Tensor | None = None, X_d: Tensor | None = None, i: int = -1
-    ) -> tuple[Tensor]:
+    ) -> list[Tensor]:
         """Calculate the :attr:`i`-th hidden representation"""
-        H_g, H_v, H_b = self.fingerprint(bmg, V_d, E_d, X_d)
-        return self.mol_predictor.encode(H_g, i), self.atom_predictor.encode(H_v, i), self.bond_predictor.encode(H_b, i)
+        H = self.fingerprint(bmg, V_d, E_d, X_d)
+        return [self.predictors[0].encode(H[0], i), self.predictors[1].encode(H[1], i), self.predictors[2].encode(H[2], i)]
 
     def forward(
         self, bmg: BatchMolGraph, V_d: Tensor | None = None, E_d: Tensor | None = None, X_d: Tensor | None = None
-    ) -> tuple[Tensor]:
+    ) -> list[Tensor]:
         """Generate predictions for the input molecules/reactions"""
-        H_g, H_v, H_b = self.fingerprint(bmg, V_d, E_d, X_d)
-        return self.mol_predictor(H_g), self.atom_predictor(H_v), self.bond_predictor(H_b)
+        H = self.fingerprint(bmg, V_d, E_d, X_d)
+        return [self.predictors[0](H[0]), self.predictors[1](H[1]), self.predictors[2](H[2])]
 
-    def training_step(self, batch: MixedTrainingBatch, batch_idx):
-        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
-        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
+    def training_step(self, batch: list[TrainingBatch], batch_idx):
+        total_l = 0
+        for batch_index in range(len(batch)):
+            bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch[batch_index]
+            mask = targets.isfinite()
+            targets = targets.nan_to_num(nan=0.0)
+            Z = self.fingerprint(bmg, V_d, E_d, X_d)
+            preds = self.predictors[batch_index].train_step(Z[batch_index])
+            if batch_index == 2:
+                preds = (preds[::2] + preds[1::2]) / 2
+            l = self.criterion[batch_index](preds, targets, mask, weights, lt_mask, gt_mask)
+            total_l += l    
 
-        #find a way to split targets, weights, masks.
-
-        mol_mask = mol_targets.isfinite()
-        atom_mask = atom_targets.isfinite()
-        bond_mask = bond_targets.isfinite()
-        mol_targets = mol_targets.nan_to_num(nan=0.0)
-        atom_targets = atom_targets.nan_to_num(nan=0.0)
-        bond_targets = bond_targets.nan_to_num(nan=0.0)
-
-        Z_g, Z_v, Z_b = self.fingerprint(bmg, V_d, E_d, X_d)
-        mol_preds = self.mol_predictor.train_step(Z_g)
-        mol_l = self.mol_criterion(mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
-        atom_preds = self.atom_predictor.train_step(Z_v)
-        atom_l = self.atom_criterion(atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
-        bond_preds = self.bond_predictor.train_step(Z_b)
-        bond_l = self.bond_criterion(bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)        
-
-        self.log("mol_train_loss", self.mol_criterion, prog_bar=True, on_epoch=True)
-        self.log("atom_train_loss", self.atom_criterion, prog_bar=True, on_epoch=True)
-        self.log("bond_train_loss", self.bond_criterion, prog_bar=True, on_epoch=True)
-
-        return mol_l + atom_l + bond_l
+        return total_l
 
     def on_validation_model_eval(self) -> None:
         self.eval()
-        self.mol_predictor.output_transform.train()
-        self.atom_predictor.output_transform.train()
-        self.bond_predictor.output_transform.train()
+        self.predictors[0].output_transform.train()
+        self.predictors[1].output_transform.train()
+        self.predictors[2].output_transform.train()
 
-    def validation_step(self, batch: MixedTrainingBatch, batch_idx: int = 0):
+    def validation_step(self, batch: list[TrainingBatch], batch_idx: int = 0):
         self._evaluate_batch(batch, "val")
 
-        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
-        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
+        for batch_index in range(len(batch)):
+            bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch[batch_index]
+            mask = targets.isfinite()
+            targets = targets.nan_to_num(nan=0.0)
+            Z = self.fingerprint(bmg, V_d, E_d, X_d)
+            preds = self.predictors[batch_index].train_step(Z[batch_index])
+            if batch_index == 2:
+                preds = (preds[::2] + preds[1::2]) / 2
 
-        mol_mask = mol_targets.isfinite()
-        atom_mask = atom_targets.isfinite()
-        bond_mask = bond_targets.isfinite()
-        mol_targets = mol_targets.nan_to_num(nan=0.0)
-        atom_targets = atom_targets.nan_to_num(nan=0.0)
-        bond_targets = bond_targets.nan_to_num(nan=0.0)
+            self.metrics[batch_index][-1](preds, targets, mask, weights, lt_mask, gt_mask)
+        
+        agg_metric = self.metrics[0][-1].compute() + self.metrics[1][-1].compute() + self.metrics[2][-1].compute()
+        self.log("val_loss", agg_metric, batch_size=len(batch[batch_index][0]), prog_bar=True)
+        self.metrics[0][-1].reset()
+        self.metrics[1][-1].reset()
+        self.metrics[2][-1].reset()
 
-        Z_g, Z_v, Z_b = self.fingerprint(bmg, V_d, E_d, X_d)
-        mol_preds = self.mol_predictor.train_step(Z_g)
-        atom_preds = self.atom_predictor.train_step(Z_v)
-        bond_preds = self.bond_predictor.train_step(Z_b)
-
-        self.mol_metrics[-1](mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
-        self.log("mol_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
-
-        self.atom_metrics[-1](atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
-        self.log("atom_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
-
-        self.bond_metrics[-1](bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)
-        self.log("bond_val_loss", self.metrics[-1], batch_size=len(batch[0]), prog_bar=True)
-
-    def test_step(self, batch: MixedTrainingBatch, batch_idx: int = 0):
+    def test_step(self, batch: list[TrainingBatch], batch_idx: int = 0):
         self._evaluate_batch(batch, "test")
 
-    def _evaluate_batch(self, batch: MixedTrainingBatch, label: str) -> None:
-        bmg, V_d, E_d, X_d, mol_targets, atom_targets, bond_targets, mol_weights, atom_weights, bond_weights,
-        mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask = batch
+    def _evaluate_batch(self, batch: list[TrainingBatch], label: str) -> None:
+        for batch_index in range(len(batch)):
+            if batch_index == 0:
+                label = "mol_" + label
+            elif batch_index == 1:
+                label = "atom_" + label
+            else:
+                label = "bond_" + label
 
-        mol_mask = mol_targets.isfinite()
-        atom_mask = atom_targets.isfinite()
-        bond_mask = bond_targets.isfinite()
-        mol_targets = mol_targets.nan_to_num(nan=0.0)
-        atom_targets = atom_targets.nan_to_num(nan=0.0)
-        bond_targets = bond_targets.nan_to_num(nan=0.0)
-        mol_preds, atom_preds, bond_preds = self(bmg, V_d, E_d, X_d)
-        mol_weights = torch.ones_like(mol_weights)
-        atom_weights = torch.ones_like(atom_weights)
-        bond_weights = torch.ones_like(bond_weights)
+            bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch[batch_index]
+            mask = targets.isfinite()
+            targets = targets.nan_to_num(nan=0.0)
+            preds = self(bmg, V_d, E_d, X_d)
+            preds = preds[batch_index]
+            if batch_index == 2:
+                preds = (preds[::2] + preds[1::2]) / 2
+            weights = torch.ones_like(weights)
+            if self.predictors[batch_index].n_targets > 1:
+                preds = preds[..., 0]
 
-        if self.predictor.n_targets > 1:
-            preds = preds[..., 0]
+            for m in self.metrics[batch_index][:-1]:
+                m.update(preds, targets, mask, weights, lt_mask, gt_mask)
+                self.log(f"{label}/{m.alias}", m, batch_size=len(batch[batch_index][0]))
 
-        for m in self.mol_metrics[:-1]:
-            m.update(mol_preds, mol_targets, mol_mask, mol_weights, mol_lt_mask, mol_gt_mask)
-            self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
-        for m in self.atom_metrics[:-1]:
-            m.update(atom_preds, atom_targets, atom_mask, atom_weights, atom_lt_mask, atom_gt_mask)
-            self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
-        for m in self.bond_metrics[:-1]:
-            m.update(bond_preds, bond_targets, bond_mask, bond_weights, bond_lt_mask, bond_gt_mask)            
-            self.log(f"{label}/{m.alias}", m, batch_size=len(batch[0]))
-
-    def predict_step(self, batch: MixedTrainingBatch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
+    def predict_step(self, batch: list[TrainingBatch], batch_idx: int, dataloader_idx: int = 0) -> list[Tensor]:
         """Return the predictions of the input batch
 
         Parameters
@@ -552,7 +481,7 @@ class MolAtomBondMPNN(pl.LightningModule):
 
             * multiclass classification: ``n x t x c``, where ``c`` is the number of classes
         """
-        bmg, X_vd, X_ed, X_d, *_ = batch
+        bmg, X_vd, X_ed, X_d, *_ = batch[0]
 
         return self(bmg, X_vd, X_ed, X_d)
 
@@ -593,13 +522,13 @@ class MolAtomBondMPNN(pl.LightningModule):
 
         submodules |= {
             key: hparams[key].pop("cls")(**hparams[key])
-            for key in ("message_passing", "agg", "predictor")
+            for key in ("message_passing", "agg", "mol_predictor", "atom_predictor", "bond_predictor")
             if key not in submodules
         }
 
-        if not hasattr(submodules["predictor"].criterion, "_defaults"):
-            submodules["predictor"].criterion = submodules["predictor"].criterion.__class__(
-                task_weights=submodules["predictor"].criterion.task_weights
+        if not hasattr(submodules["mol_predictor"].criterion, "_defaults"):
+            submodules["mol_predictor"].criterion = submodules["mol_predictor"].criterion.__class__(
+                task_weights=submodules["mol_predictor"].criterion.task_weights
             )
 
         return submodules, state_dict, hparams
@@ -612,14 +541,14 @@ class MolAtomBondMPNN(pl.LightningModule):
             for i_metric in range(n_metrics):
                 state_dict[f"metrics.{i_metric}.task_weights"] = torch.tensor([[1.0]])
             state_dict[f"metrics.{i_metric + 1}.task_weights"] = state_dict[
-                "predictor.criterion.task_weights"
+                "predictors.mol_predictor.criterion.task_weights"
             ]
         return state_dict
 
     @classmethod
     def load_from_checkpoint(
         cls, checkpoint_path, map_location=None, hparams_file=None, strict=True, **kwargs
-    ) -> MPNN:
+    ) -> MolAtomBondMPNN:
         submodules = {
             k: v for k, v in kwargs.items() if k in ["message_passing", "agg", "predictor"]
         }
@@ -636,11 +565,11 @@ class MolAtomBondMPNN(pl.LightningModule):
         return super().load_from_checkpoint(buffer, map_location, hparams_file, strict, **kwargs)
 
     @classmethod
-    def load_from_file(cls, model_path, map_location=None, strict=True, **submodules) -> MPNN:
+    def load_from_file(cls, model_path, map_location=None, strict=True, **submodules) -> MolAtomBondMPNN:
         submodules, state_dict, hparams = cls._load(model_path, map_location, **submodules)
         hparams.update(submodules)
 
-        state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
+        #state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
 
         model = cls(**hparams)
         model.load_state_dict(state_dict, strict=strict)

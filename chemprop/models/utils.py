@@ -2,11 +2,11 @@ from os import PathLike
 
 import torch
 
-from chemprop.models.model import MPNN
+from chemprop.models.model import MPNN, MolAtomBondMPNN
 from chemprop.models.multi import MulticomponentMPNN
 
 
-def save_model(path: PathLike, model: MPNN, output_columns: list[str] = None) -> None:
+def save_model(path: PathLike, model: MPNN | MolAtomBondMPNN, output_columns: list[str] = None) -> None:
     torch.save(
         {
             "hyper_parameters": model.hparams,
@@ -23,6 +23,10 @@ def load_model(path: PathLike, multicomponent: bool) -> MPNN:
     else:
         model = MPNN.load_from_file(path, map_location=torch.device("cpu"))
 
+    return model
+
+def load_mixed_model(path: PathLike) -> MolAtomBondMPNN:
+    model = MolAtomBondMPNN.load_from_file(path, map_location=torch.device("cpu"))
     return model
 
 

@@ -147,6 +147,7 @@ def mixed_parse_csv(
             while index < len(df_input) and column_mol.GetNumAtoms() == column_mol.GetNumBonds():
                 index += 1
                 column_mol = make_mol(df_input.iloc[index][smiles_cols])
+            column_type = ast.literal_eval(make_mol(df.input.iloc[index][column]))
             flag.append("atom") if len(column_type) == column_mol.GetNumAtoms() else flag.append("bond")
             
     for molecule in range(len(df_input)):
@@ -164,29 +165,39 @@ def mixed_parse_csv(
             bond_Y.append(np.hstack(bond_list_props))
 
     weights = None if weight_col is None else df[weight_col].to_numpy(np.single)
-
+    lt_mask = []
+    gt_mask = []
     if bounded:
         mol_lt_mask = mol_Y.applymap(lambda x: "<" in x).to_numpy()
+        mol_gt_mask = mol_Y.applymap(lambda x: ">" in x).to_numpy()
+        lt_mask.append(mol_lt_mask)
+        gt_mask.append(mol_gt_mask)
+
         atom_dim = atom_Y[0].shape[1]
         atom_lt_mask, atom_gt_mask = np.empty((0, atom_dim)), np.empty((0, atom_dim))
         for i in range(len(atom_Y)):
             atom_lt_mask = np.vstack([atom_lt_mask, atom_Y[i].applymap(lambda x: "<" in x).to_numpy()])
             atom_gt_mask = np.vstack([atom_gt_mask, atom_Y[i].applymap(lambda x: ">" in x).to_numpy()])
             atom_Y[i] = atom_Y[i].applymap(lambda x: x.strip("<").strip(">")).to_numpy(np.single)
+        lt_mask.append(atom_lt_mask)
+        gt_mask.append(atom_gt_mask)
+
         bond_dim = bond_Y[0].shape[1]
         bond_lt_mask, bond_gt_mask = np.empty((0, bond_dim)), np.empty((0, bond_dim))
         for i in range(len(bond_Y)):
             bond_lt_mask = np.vstack([bond_lt_mask, bond_Y[i].applymap(lambda x: "<" in x).to_numpy()])
             bond_gt_mask = np.vstack([bond_gt_mask, bond_Y[i].applymap(lambda x: ">" in x).to_numpy()])
             bond_Y[i] = bond_Y[i].applymap(lambda x: x.strip("<").strip(">")).to_numpy(np.single)
+        lt_mask.append(bond_lt_mask)
+        gt_mask.append(bond_gt_mask)
     else:
         mol_Y = np.array(mol_Y)
         atom_Y = np.array(atom_Y)
         bond_Y = np.array(bond_Y)
-        mol_lt_mask, atom_lt_mask, bond_lt_mask = None, None, None
-        mol_gt_mask, atom_gt_mask, bond_gt_mask = None, None, None
+        lt_mask = None
+        gt_mask = None
 
-    return smiss, rxnss, mol_Y, atom_Y, bond_Y, weights, mol_lt_mask, atom_lt_mask, bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask
+    return smiss, rxnss, mol_Y, atom_Y, bond_Y, weights, lt_mask, gt_mask, flag
 
 def get_column_names(
     path: PathLike,
@@ -499,8 +510,7 @@ def build_mixed_data_from_files(
     **featurization_kwargs: Mapping,
 ) -> list[list[MoleculeDatapoint] | list[ReactionDatapoint]]:
 
-    smiss, rxnss, mol_Y, atom_Y, bond_Y, weights, mol_lt_mask, atom_lt_mask, 
-    bond_lt_mask, mol_gt_mask, atom_gt_mask, bond_gt_mask= mixed_parse_csv(
+    smiss, rxnss, mol_Y, atom_Y, bond_Y, weights, lt_mask, gt_mask, flag = mixed_parse_csv(
         p_data,
         smiles_cols,
         rxn_cols,
@@ -527,8 +537,8 @@ def build_mixed_data_from_files(
         rxnss,
         mol_Y,
         weights,
-        mol_lt_mask,
-        mol_gt_mask,
+        lt_mask[0],
+        gt_mask[0],
         X_ds,
         V_fss,
         E_fss,
@@ -542,8 +552,8 @@ def build_mixed_data_from_files(
         rxnss,
         atom_Y,
         weights,
-        atom_lt_mask,
-        atom_gt_mask,
+        lt_mask[1],
+        gt_mask[1],
         X_ds,
         V_fss,
         E_fss,
@@ -557,8 +567,8 @@ def build_mixed_data_from_files(
         rxnss,
         bond_Y,
         weights,
-        bond_lt_mask,
-        bond_gt_mask,
+        lt_mask[2],
+        gt_mask[2],
         X_ds,
         V_fss,
         E_fss,
@@ -567,7 +577,16 @@ def build_mixed_data_from_files(
         **featurization_kwargs,
     )
 
-    return mol_data + mol_rxn_data + atom_data + atom_rxn_data + bond_data + bond_rxn_data
+    mol_cols, atom_cols, bond_cols = [], [], []
+    for i in range(len(flag)):
+        if flag[i] == "mol":
+            mol_cols.append(i)
+        elif flag[i] == "atom":
+            atom_cols.append(i)
+        else:
+            bond_cols.append(i)
+
+    return mol_data + atom_data + bond_data, mol_cols, atom_cols, bond_cols
 
 
 def load_input_feats_and_descs(
@@ -613,7 +632,7 @@ def make_dataset(
     data: Sequence[MoleculeDatapoint] | Sequence[ReactionDatapoint],
     reaction_mode: str,
     multi_hot_atom_featurizer_mode: str = "V2",
-    index: int = 0,
+    index_flag: int = 0,
 ) -> MoleculeDataset | AtomDataset | BondDataset | ReactionDataset:
     atom_featurizer = get_multi_hot_atom_featurizer(multi_hot_atom_featurizer_mode)
 
@@ -625,14 +644,14 @@ def make_dataset(
             extra_atom_fdim=extra_atom_fdim,
             extra_bond_fdim=extra_bond_fdim,
         )
-        if index <= 1:
+        if index_flag == 0:
             return MoleculeDataset(data, featurizer)
-        elif index <= 3:
+        elif index_flag == 1:
             return AtomDataset(data, featurizer)
-        elif index <= 5:
+        elif index == 2:
             return BondDataset(data, featurizer)
         else:
-            raise IndexError("Index not in list of train_data, val_data, and test_data")
+            raise IndexError("Index flag not in list of train_data, val_data, and test_data")
 
     featurizer = CondensedGraphOfReactionFeaturizer(
         mode_=reaction_mode, atom_featurizer=atom_featurizer
