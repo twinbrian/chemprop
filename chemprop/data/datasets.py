@@ -463,8 +463,8 @@ class MolAtomBondDataset(_MolGraphDatasetMixin, MolGraphDataset):
         return list(zip(*[dset.smiles for dset in self.datasets]))
 
     @property
-    def names(self) -> list[list[str]]:
-        return list(zip(*[dset.names for dset in self.datasets]))
+    def names(self) -> list[str]:
+        return self.datasets[0].names
 
     @property
     def mols(self) -> list[list[Chem.Mol]]:

@@ -347,7 +347,7 @@ def save_predictions(args, model, output_columns, test_preds, test_uncs, output_
         args.test_path, header=None if args.no_header_row else "infer", index_col=False
     )
 
-    if args.mixed:
+    if args.is_mixed:
         df_test.iloc[:, mol_cols] = mol_average_preds.tolist()
         for i in range(len(df_test)):
             first_atom = atom_slices.index(i)

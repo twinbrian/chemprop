@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from chemprop.data.datapoints import MoleculeDatapoint, ReactionDatapoint
-from chemprop.data.datasets import AtomDataset, MoleculeDataset, ReactionDataset
+from chemprop.data.datasets import AtomDataset, BondDataset, MoleculeDataset, ReactionDataset
 from chemprop.featurizers.atom import get_multi_hot_atom_featurizer
 from chemprop.featurizers.molecule import MoleculeFeaturizerRegistry
 from chemprop.featurizers.molgraph import (
@@ -134,29 +134,33 @@ def mixed_parse_csv(
         )
 
     flag, mol_Y, atom_Y, bond_Y = [], [], [], []
-    for column in target_columns:
+    for column in target_cols:
         index = 0
-        column_type = df_input.iloc[index][column]
+        column_type = df.iloc[index][column]
         if isinstance(column_type, float):
-            for molecule in range(len(df_input)):
-                mol_Y.append(df_input.iloc[molecule][column])
             flag.append("mol")
         else:
-            column_mol = make_mol(df_input.iloc[index][smiles_column], False, False)
+            column_mol = make_mol(df.iloc[index][input_cols[0]], False, False)
             column_type = ast.literal_eval(column_type)
-            while index < len(df_input) and column_mol.GetNumAtoms() == column_mol.GetNumBonds():
+            while index < len(df) and column_mol.GetNumAtoms() == column_mol.GetNumBonds():
                 index += 1
-                column_mol = make_mol(df_input.iloc[index][smiles_cols])
-            column_type = ast.literal_eval(make_mol(df.input.iloc[index][column]))
+                column_mol = make_mol(df.iloc[index][input_cols[0]], False, False)
+            column_type = ast.literal_eval(df.iloc[index][column])
             flag.append("atom") if len(column_type) == column_mol.GetNumAtoms() else flag.append("bond")
-            
-    for molecule in range(len(df_input)):
+
+    mol_list = []
+    for i in range(len(flag)):
+        if flag[i] == "mol":
+            mol_list.append(target_cols[i])
+    mol_Y = df[mol_list]
+
+    for molecule in range(len(df)):
         atom_list_props = []
         bond_list_props = []
-        for prop in range(len(target_columns)):
+        for prop in range(len(target_cols)):
             if flag[prop] == "mol":
                 continue
-            np_prop = np.array(ast.literal_eval(df_input.iloc[molecule][target_columns[prop]]))
+            np_prop = np.array(ast.literal_eval(df.iloc[molecule][target_cols[prop]]))
             np_prop = np.expand_dims(np_prop, axis=1)
             atom_list_props.append(np_prop) if flag[prop] == "atom" else bond_list_props.append(np_prop)
         if len(atom_list_props) > 0:
@@ -192,8 +196,6 @@ def mixed_parse_csv(
         gt_mask.append(bond_gt_mask)
     else:
         mol_Y = np.array(mol_Y)
-        atom_Y = np.array(atom_Y)
-        bond_Y = np.array(bond_Y)
         lt_mask = None
         gt_mask = None
 
@@ -530,15 +532,15 @@ def build_mixed_data_from_files(
     E_fss = load_input_feats_and_descs(p_bond_feats, n_molecules, n_datapoints, feat_desc="E_f")
     V_dss = load_input_feats_and_descs(p_atom_descs, n_molecules, n_datapoints, feat_desc="V_d")
 
-    keep_atom_map = True if np.vstack(Y).shape[0] == n_molecules else False
+    keep_atom_map = True if np.vstack(mol_Y).shape[0] == n_molecules else False
 
     mol_data, mol_rxn_data = make_datapoints(
         smiss,
         rxnss,
         mol_Y,
         weights,
-        lt_mask[0],
-        gt_mask[0],
+        lt_mask if lt_mask is None else lt_mask[0],
+        gt_mask if gt_mask is None else gt_mask[0],
         X_ds,
         V_fss,
         E_fss,
@@ -552,8 +554,8 @@ def build_mixed_data_from_files(
         rxnss,
         atom_Y,
         weights,
-        lt_mask[1],
-        gt_mask[1],
+        lt_mask if lt_mask is None else lt_mask[1],
+        gt_mask if gt_mask is None else gt_mask[1],
         X_ds,
         V_fss,
         E_fss,
@@ -567,8 +569,8 @@ def build_mixed_data_from_files(
         rxnss,
         bond_Y,
         weights,
-        lt_mask[2],
-        gt_mask[2],
+        lt_mask if lt_mask is None else lt_mask[2],
+        gt_mask if gt_mask is None else gt_mask[2],
         X_ds,
         V_fss,
         E_fss,
@@ -580,11 +582,11 @@ def build_mixed_data_from_files(
     mol_cols, atom_cols, bond_cols = [], [], []
     for i in range(len(flag)):
         if flag[i] == "mol":
-            mol_cols.append(i)
+            mol_cols.append(target_cols[i])
         elif flag[i] == "atom":
-            atom_cols.append(i)
+            atom_cols.append(target_cols[i])
         else:
-            bond_cols.append(i)
+            bond_cols.append(target_cols[i])
 
     return mol_data + atom_data + bond_data, mol_cols, atom_cols, bond_cols
 
@@ -632,7 +634,7 @@ def make_dataset(
     data: Sequence[MoleculeDatapoint] | Sequence[ReactionDatapoint],
     reaction_mode: str,
     multi_hot_atom_featurizer_mode: str = "V2",
-    index_flag: int = 0,
+    index: int = 0,
 ) -> MoleculeDataset | AtomDataset | BondDataset | ReactionDataset:
     atom_featurizer = get_multi_hot_atom_featurizer(multi_hot_atom_featurizer_mode)
 
@@ -644,9 +646,9 @@ def make_dataset(
             extra_atom_fdim=extra_atom_fdim,
             extra_bond_fdim=extra_bond_fdim,
         )
-        if index_flag == 0:
+        if index == 0:
             return MoleculeDataset(data, featurizer)
-        elif index_flag == 1:
+        elif index == 1:
             return AtomDataset(data, featurizer)
         elif index == 2:
             return BondDataset(data, featurizer)

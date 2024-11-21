@@ -239,7 +239,7 @@ class MPNN(pl.LightningModule):
 
     @classmethod
     def _load(cls, path, map_location, **submodules):
-        d = torch.load(path, map_location)
+        d = torch.load(path, map_location, weights_only=False)
 
         try:
             hparams = d["hyper_parameters"]
@@ -283,7 +283,7 @@ class MPNN(pl.LightningModule):
         kwargs.update(submodules)
 
         state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
-        d = torch.load(checkpoint_path, map_location)
+        d = torch.load(checkpoint_path, map_location, weights_only=False)
         d["state_dict"] = state_dict
         buffer = io.BytesIO()
         torch.save(d, buffer)
@@ -323,7 +323,7 @@ class MolAtomBondMPNN(pl.LightningModule):
         super().__init__()
         # manually add X_d_transform to hparams to suppress lightning's warning about double saving
         # its state_dict values.
-        self.save_hyperparameters(ignore=["X_d_transform", "message_passing", "agg", "predictor"])
+        self.save_hyperparameters(ignore=["X_d_transform", "message_passing", "agg", "mol_predictor", "atom_predictor", "bond_predictor"])
         self.hparams["X_d_transform"] = X_d_transform
         self.hparams.update(
             {
@@ -343,7 +343,7 @@ class MolAtomBondMPNN(pl.LightningModule):
         self.X_d_transform = X_d_transform if X_d_transform is not None else nn.Identity()
 
         self.metrics = nn.ModuleList([nn.ModuleList([*metrics, self.criterion[i].clone()]) if metrics 
-                else nn.ModuleList([self.predictor[i]._T_default_metric(), self.criterion[i].clone()]) for i in range(3)])
+                else nn.ModuleList([self.predictors[i]._T_default_metric(), self.criterion[i].clone()]) for i in range(3)])
 
         self.warmup_epochs = warmup_epochs
         self.init_lr = init_lr
@@ -483,7 +483,9 @@ class MolAtomBondMPNN(pl.LightningModule):
         """
         bmg, X_vd, X_ed, X_d, *_ = batch[0]
 
-        return self(bmg, X_vd, X_ed, X_d)
+        predss = self(bmg, X_vd, X_ed, X_d)
+        predss[2] = (predss[2][::2] + predss[2][1::2]) / 2
+        return predss
 
     def configure_optimizers(self):
         opt = optim.Adam(self.parameters(), self.init_lr)
@@ -512,7 +514,7 @@ class MolAtomBondMPNN(pl.LightningModule):
 
     @classmethod
     def _load(cls, path, map_location, **submodules):
-        d = torch.load(path, map_location)
+        d = torch.load(path, map_location, weights_only=False)
 
         try:
             hparams = d["hyper_parameters"]
@@ -535,14 +537,6 @@ class MolAtomBondMPNN(pl.LightningModule):
 
     @classmethod
     def _add_metric_task_weights_to_state_dict(cls, state_dict, hparams):
-        if "metrics.0.task_weights" not in state_dict:
-            metrics = hparams["metrics"]
-            n_metrics = len(metrics) if metrics is not None else 1
-            for i_metric in range(n_metrics):
-                state_dict[f"metrics.{i_metric}.task_weights"] = torch.tensor([[1.0]])
-            state_dict[f"metrics.{i_metric + 1}.task_weights"] = state_dict[
-                "predictors.mol_predictor.criterion.task_weights"
-            ]
         return state_dict
 
     @classmethod
@@ -556,7 +550,7 @@ class MolAtomBondMPNN(pl.LightningModule):
         kwargs.update(submodules)
 
         state_dict = cls._add_metric_task_weights_to_state_dict(state_dict, hparams)
-        d = torch.load(checkpoint_path, map_location)
+        d = torch.load(checkpoint_path, map_location, weights_only=False)
         d["state_dict"] = state_dict
         buffer = io.BytesIO()
         torch.save(d, buffer)
