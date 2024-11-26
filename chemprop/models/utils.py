@@ -6,12 +6,13 @@ from chemprop.models.model import MPNN, MolAtomBondMPNN
 from chemprop.models.multi import MulticomponentMPNN
 
 
-def save_model(path: PathLike, model: MPNN | MolAtomBondMPNN, output_columns: list[str] = None) -> None:
+def save_model(path: PathLike, model: MPNN | MolAtomBondMPNN, output_columns: list[str] = None, mixed_columns: list[list[str]] = None) -> None:
     torch.save(
         {
             "hyper_parameters": model.hparams,
             "state_dict": model.state_dict(),
             "output_columns": output_columns,
+            "mixed_columns": mixed_columns
         },
         path,
     )
@@ -30,7 +31,7 @@ def load_mixed_model(path: PathLike) -> MolAtomBondMPNN:
     return model
 
 
-def load_output_columns(path: PathLike) -> list[str] | None:
+def load_output_columns(path: PathLike) -> tuple[list[str] | None, list[list[str]] | None]:
     model_file = torch.load(path, map_location=torch.device("cpu"))
 
-    return model_file.get("output_columns")
+    return model_file.get("output_columns"), model_file.get("mixed_columns")

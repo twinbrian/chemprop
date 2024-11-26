@@ -165,8 +165,14 @@ def mixed_parse_csv(
             atom_list_props.append(np_prop) if flag[prop] == "atom" else bond_list_props.append(np_prop)
         if len(atom_list_props) > 0:
             atom_Y.append(np.hstack(atom_list_props))
+        else:
+            atom_Y = df[[]]
+            atom_Y = atom_Y.to_numpy()
         if len(bond_list_props) > 0:
             bond_Y.append(np.hstack(bond_list_props))
+        else:
+            bond_Y = df[[]]
+            bond_Y = bond_Y.to_numpy()
 
     weights = None if weight_col is None else df[weight_col].to_numpy(np.single)
     lt_mask = []
@@ -511,7 +517,6 @@ def build_mixed_data_from_files(
     p_atom_descs: dict[int, PathLike],
     **featurization_kwargs: Mapping,
 ) -> list[list[MoleculeDatapoint] | list[ReactionDatapoint]]:
-
     smiss, rxnss, mol_Y, atom_Y, bond_Y, weights, lt_mask, gt_mask, flag = mixed_parse_csv(
         p_data,
         smiles_cols,
@@ -533,7 +538,7 @@ def build_mixed_data_from_files(
     V_dss = load_input_feats_and_descs(p_atom_descs, n_molecules, n_datapoints, feat_desc="V_d")
 
     keep_atom_map = True if np.vstack(mol_Y).shape[0] == n_molecules else False
-
+    print(mol_Y.shape)
     mol_data, mol_rxn_data = make_datapoints(
         smiss,
         rxnss,

@@ -366,7 +366,7 @@ class AtomDataset(MoleculeDataset):
         slice_indices = []
         index = 0
         for d in self.data:
-            slice_indices.extend([index] * d.y.shape[0])
+            slice_indices.extend([index] * d.mol.GetNumAtoms())
             index += 1
         return slice_indices
 
@@ -417,7 +417,14 @@ class AtomDataset(MoleculeDataset):
 
 @dataclass
 class BondDataset(AtomDataset):
-    pass
+    @cached_property
+    def _slices(self) -> list:
+        slice_indices = []
+        index = 0
+        for d in self.data:
+            slice_indices.extend([index] * d.mol.GetNumBonds())
+            index += 1
+        return slice_indices
 
 
 @dataclass(repr=False, eq=False)

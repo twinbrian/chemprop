@@ -318,11 +318,6 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
         help="Name of the columns containing target values (by default, uses all columns except the SMILES column and the ``ignore_columns``)",
     )
     train_data_args.add_argument(
-        "--mixed-columns",
-        nargs="+",
-        help="Target columns that correspond to molecule (first index), atom (second index), and bond (third index) predictions"
-    )
-    train_data_args.add_argument(
         "--ignore-columns",
         nargs="+",
         help="Name of the columns to ignore when ``target_columns`` is not provided",
@@ -1302,7 +1297,7 @@ def train_model(
         best_model_path = checkpointing.best_model_path
         model = model.__class__.load_from_checkpoint(best_model_path)
         p_model = model_output_dir / "best.pt"
-        save_model(p_model, model, args.target_columns)
+        save_model(p_model, model, args.target_columns, args.mixed_columns)
         logger.info(f"Best model saved to '{p_model}'")
 
         if args.remove_checkpoints:
