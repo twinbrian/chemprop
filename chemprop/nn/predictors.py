@@ -96,6 +96,32 @@ class Predictor(nn.Module, HasHParams):
 
 PredictorRegistry = ClassRegistry[Predictor]()
 
+class FFNMockPredictor(Predictor, HyperparametersMixin):
+    _T_default_criterion: ChempropMetric
+    _T_default_metric: ChempropMetric
+    output_transform = nn.Identity()
+
+    @property
+    def input_dim(self) -> int:
+        return 0
+
+    @property
+    def output_dim(self) -> int:
+        return 0
+
+    @property
+    def n_tasks(self) -> int:
+        return 0
+
+    def forward(self, Z: Tensor) -> Tensor:
+        return torch.tensor([], device=Z.device()) 
+
+    def encode(self, Z: Tensor, i: int) -> Tensor:
+        return torch.tensor([], device=Z.device())
+
+    def criterion(self, *args, **kwargs) -> int:
+        return 0
+
 
 class _FFNPredictorBase(Predictor, HyperparametersMixin):
     """A :class:`_FFNPredictorBase` is the base class for all :class:`Predictor`\s that use an

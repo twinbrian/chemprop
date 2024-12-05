@@ -43,6 +43,13 @@ def add_common_args(parser: ArgumentParser) -> ArgumentParser:
         nargs="+",
         help="Target columns that correspond to molecule (first index), atom (second index), and bond (third index) predictions"
     )
+    data_args.add_argument(
+        "--config-type",
+        type=float,
+        nargs=3,
+        default=[1, 1, 1],
+        help="Target columns type (whether they have molecule, atom, or bond predictions)"
+    )
     dataloader_args = parser.add_argument_group("Dataloader args")
     dataloader_args.add_argument(
         "-n",

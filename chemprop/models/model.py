@@ -394,7 +394,10 @@ class MolAtomBondMPNN(pl.LightningModule):
 
     def training_step(self, batch: list[TrainingBatch], batch_idx):
         total_l = 0
-        for batch_index in range(len(batch)):
+        for batch_index, val in enumerate(batch):
+            if val is None:
+                continue
+
             bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch[batch_index]
             mask = targets.isfinite()
             targets = targets.nan_to_num(nan=0.0)
@@ -416,7 +419,10 @@ class MolAtomBondMPNN(pl.LightningModule):
     def validation_step(self, batch: list[TrainingBatch], batch_idx: int = 0):
         self._evaluate_batch(batch, "val")
 
-        for batch_index in range(len(batch)):
+        agg_metric = 0
+        for batch_index, val in enumerate(batch):
+            if val is None:
+                continue
             bmg, V_d, E_d, X_d, targets, weights, lt_mask, gt_mask = batch[batch_index]
             mask = targets.isfinite()
             targets = targets.nan_to_num(nan=0.0)
@@ -426,18 +432,19 @@ class MolAtomBondMPNN(pl.LightningModule):
                 preds = (preds[::2] + preds[1::2]) / 2
 
             self.metrics[batch_index][-1](preds, targets, mask, weights, lt_mask, gt_mask)
+            agg_metric += self.metrics[batch_index][-1].compute()
+            self.metrics[batch_index][-1].reset()
         
-        agg_metric = self.metrics[0][-1].compute() + self.metrics[1][-1].compute() + self.metrics[2][-1].compute()
-        self.log("val_loss", agg_metric, batch_size=len(batch[batch_index][0]), prog_bar=True)
-        self.metrics[0][-1].reset()
-        self.metrics[1][-1].reset()
-        self.metrics[2][-1].reset()
+        self.log("val_loss", agg_metric, batch_size=len(batch[0][0] or batch[1][0] or batch[2][0]), prog_bar=True)
 
     def test_step(self, batch: list[TrainingBatch], batch_idx: int = 0):
         self._evaluate_batch(batch, "test")
 
     def _evaluate_batch(self, batch: list[TrainingBatch], label: str) -> None:
-        for batch_index in range(len(batch)):
+        for batch_index, val in enumerate(batch):
+            if val is None:
+                continue
+
             if batch_index == 0:
                 label = "mol_" + label
             elif batch_index == 1:
@@ -481,7 +488,7 @@ class MolAtomBondMPNN(pl.LightningModule):
 
             * multiclass classification: ``n x t x c``, where ``c`` is the number of classes
         """
-        bmg, X_vd, X_ed, X_d, *_ = batch[0]
+        bmg, X_vd, X_ed, X_d, *_ = batch[0] or batch[1] or batch[2]
 
         predss = self(bmg, X_vd, X_ed, X_d)
         predss[2] = (predss[2][::2] + predss[2][1::2]) / 2

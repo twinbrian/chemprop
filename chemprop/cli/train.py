@@ -48,7 +48,7 @@ from chemprop.data import (
 )
 from chemprop.data.datasets import _MolGraphDatasetMixin
 from chemprop.models import MPNN, MulticomponentMPNN, MolAtomBondMPNN, save_model
-from chemprop.nn import AggregationRegistry, LossFunctionRegistry, MetricRegistry, PredictorRegistry
+from chemprop.nn import AggregationRegistry, LossFunctionRegistry, MetricRegistry, PredictorRegistry, FFNMockPredictor
 from chemprop.nn.message_passing import (
     AtomMessagePassing,
     BondMessagePassing,
@@ -975,9 +975,9 @@ def build_datasets(args, train_data, val_data, test_data):
 def build_model(
     args,
     train_dset: MolGraphDataset | MolAtomBondDataset | MulticomponentDataset,
-    output_transform: UnscaleTransform,
+    output_transform: list[UnscaleTransform],
     input_transforms: tuple[ScaleTransform, list[GraphTransform], list[ScaleTransform], list[ScaleTransform]],
-) -> MPNN:
+) -> MPNN | MulticomponentMPNN:
     if args.is_mixed:
         mp_cls = MixedAtomMessagePassing if args.atom_messages else MixedBondMessagePassing
     else:
@@ -1083,12 +1083,16 @@ def build_model(
     else:
         metrics = None
 
-    if len(output_transform) == 1:
+    if len(output_transform) == 1 and output_transform[0] is None:
         output_transform = output_transform * 3
+    for i in range(3):
+        if args.config_type[i] == 0:
+            output_transform.insert(i, nn.Identity())
     input_dims = [mp_block.output_dim + d_xd] * 3
-    input_dims[2] *= 2
+    input_dims[2] *= 2 #for bond edge input_dim
+
     predictors = [Factory.build(
-        predictor_cls,
+        predictor_cls if args.config_type[i] == 1 else FFNMockPredictor,
         input_dim=input_dims[i],
         n_tasks=n_tasks,
         hidden_dim=args.ffn_hidden_dim,
@@ -1264,9 +1268,6 @@ def train_model(
                 predss = trainer.predict(model, dataloaders=test_loader)
             else:
                 predss = trainer.predict(dataloaders=test_loader)
-            print(test_loader.dataset.mol_dataset)
-            print(test_loader.dataset.atom_dataset)
-            print(test_loader.dataset.bond_dataset)
             if args.is_mixed:
                 preds = []
                 preds.append(torch.concat([predss[0][0]], 0))
@@ -1425,13 +1426,16 @@ def main(args):
             input_transforms = normalize_inputs(train_dset, val_dset, args)
 
             if args.is_mixed and "regression" in args.task_type:
-                print(train_dset.mol_dataset)
-                mol_output_scaler = train_dset.mol_dataset.normalize_targets()
-                atom_output_scaler = train_dset.atom_dataset.normalize_targets()
-                bond_output_scaler = train_dset.bond_dataset.normalize_targets()
+                output_transform = []
+                mol_output_scaler = train_dset.mol_dataset.normalize_targets() # create a mock dataset to set noramlize_targets to none or smth
                 val_dset.mol_dataset.normalize_targets(mol_output_scaler)
+                output_transform.append(UnscaleTransform.from_standard_scaler(mol_output_scaler))
+                atom_output_scaler = train_dset.atom_dataset.normalize_targets()
                 val_dset.atom_dataset.normalize_targets(atom_output_scaler)
+                output_transform.append(UnscaleTransform.from_standard_scaler(atom_output_scaler))
+                bond_output_scaler = train_dset.bond_dataset.normalize_targets()
                 val_dset.bond_dataset.normalize_targets(bond_output_scaler)
+                output_transform.append(UnscaleTransform.from_standard_scaler(bond_output_scaler))
                 logger.info(
                     f"Train data: mean = {mol_output_scaler.mean_} | std = {mol_output_scaler.scale_}"
                 )
@@ -1441,10 +1445,6 @@ def main(args):
                 logger.info(
                     f"Train data: mean = {bond_output_scaler.mean_} | std = {bond_output_scaler.scale_}"
                 )
-                output_transform = []
-                output_transform.append(UnscaleTransform.from_standard_scaler(mol_output_scaler))
-                output_transform.append(UnscaleTransform.from_standard_scaler(atom_output_scaler))
-                output_transform.append(UnscaleTransform.from_standard_scaler(bond_output_scaler))
             elif args.is_mixed:
                 output_transform = [None, None, None]
             elif "regression" in args.task_type:

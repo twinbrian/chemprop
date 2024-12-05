@@ -126,8 +126,7 @@ def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
 
 
 def mixed_collate_batch(batches: Iterable[Iterable[Datum]]) -> list[TrainingBatch]:
-    mol_batch, atom_batch, bond_batch = zip(*batches)
-    return [collate_batch(mol_batch), collate_batch(atom_batch), collate_batch(bond_batch)]
+    return [collate_batch(batch) if batch[0] is not None else None for batch in zip(*batches)]
 
 
 class MulticomponentTrainingBatch(NamedTuple):
