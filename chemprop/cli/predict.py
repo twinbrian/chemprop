@@ -374,31 +374,22 @@ def save_predictions(args, model, output_columns, mixed_columns, test_preds, tes
         atom_cols = mixed_columns[1]
         bond_cols = mixed_columns[2]
 
-        print(test_preds)
-        print(mol_cols)
         df_test.loc[:, mol_cols] = test_preds[0].tolist()
 
         for i in range(len(df_test)):
             atom_slices = test_loader.dataset.atom_dataset._slices
-            first_atom = atom_slices.index(i)
-            last_atom = first_atom + atom_slices.count(i)
-            atom_preds = test_preds[1][first_atom:last_atom]
-            df_test.loc[i, atom_cols] = [str(atom_preds[:,j].tolist()) for j in range(len(atom_cols))]
+            if atom_slices is not None:
+                first_atom = atom_slices.index(i)
+                last_atom = first_atom + atom_slices.count(i)
+                atom_preds = test_preds[1][first_atom:last_atom]
+                df_test.loc[i, atom_cols] = [str(atom_preds[:,j].tolist()) for j in range(len(atom_cols))]
 
             bond_slices = test_loader.dataset.bond_dataset._slices
-            first_bond = bond_slices.index(i)
-            last_bond = first_bond + bond_slices.count(i)
-            bond_preds = test_preds[2][first_bond:last_bond]
-            df_test.loc[i, bond_cols] = [str(bond_preds[:,j].tolist()) for j in range(len(bond_cols))]
-    elif args.is_atom_bond_targets:
-        slices = test_loader.dataset._slices()
-        for i in range(len(df_test)):
-            first_atom = slices.index(i)
-            last_atom = first_atom + slices.count(i)
-            mol_avg_preds = test_preds[0][first_atom:last_atom]
-            df_test.loc[i, output_columns] = [
-                str(mol_avg_preds[:, j].tolist()) for j in range(len(output_columns))
-            ]
+            if bond_slices is not None:
+                first_bond = bond_slices.index(i)
+                last_bond = first_bond + bond_slices.count(i)
+                bond_preds = test_preds[2][first_bond:last_bond]
+                df_test.loc[i, bond_cols] = [str(bond_preds[:,j].tolist()) for j in range(len(bond_cols))]
     else:
         df_test[output_columns] = test_preds[0]
 
@@ -449,7 +440,7 @@ def save_individual_predictions(
         ]
 
     m, n, t = test_individual_preds[0].shape
-    test_individual_preds[0] = np.transpose(test_individual_preds[0], (1, 0, 2)).reshape(n, m * t)
+    test_individual_preds[0] = np.transpose(test_individual_preds[0], (1, 0, 2)).reshape(n, m * t) #TODO: edit for atoms/bonds
     df_test = pd.read_csv(
         args.test_path, header=None if args.no_header_row else "infer", index_col=False
     )
@@ -463,25 +454,18 @@ def save_individual_predictions(
 
         for i in range(len(df_test)):
             atom_slices = test_loader.dataset.atom_dataset._slices
-            first_atom = atom_slices.index(i)
-            last_atom = first_atom + atom_slices.count(i)
-            atom_preds = test_individual_preds[1][first_atom:last_atom]
-            df_test.loc[i, atom_cols] = [str(atom_preds[:,j].tolist()) for j in range(len(atom_cols))]
+            if atom_slices is not None:
+                first_atom = atom_slices.index(i)
+                last_atom = first_atom + atom_slices.count(i)
+                atom_preds = test_individual_preds[1][first_atom:last_atom]
+                df_test.loc[i, atom_cols] = [str(atom_preds[:,j].tolist()) for j in range(len(atom_cols))]
 
             bond_slices = test_loader.dataset.bond_dataset._slices
-            first_bond = bond_slices.index(i)
-            last_bond = first_bond + bond_slices.count(i)
-            bond_preds = test_individual_preds[2][first_bond:last_bond]
-            df_test.loc[i, bond_cols] = [str(bond_preds[:,j].tolist()) for j in range(len(bond_cols))]
-    elif args.is_atom_bond_targets:
-        slices = test_loader.dataset._slices()
-        for i in range(len(df_test)):
-            first_atom = slices.index(i)
-            last_atom = first_atom + slices.count(i)
-            mol_indiv_preds = test_individual_preds[0][first_atom:last_atom]
-            df_test.loc[i, output_columns] = [
-                str(mol_indiv_preds[:, j].tolist()) for j in range(len(output_columns))
-            ]
+            if bond_slices is not None:
+                first_bond = bond_slices.index(i)
+                last_bond = first_bond + bond_slices.count(i)
+                bond_preds = test_individual_preds[2][first_bond:last_bond]
+                df_test.loc[i, bond_cols] = [str(bond_preds[:,j].tolist()) for j in range(len(bond_cols))]
     else:
         df_test[output_columns] = test_individual_preds[0]
 

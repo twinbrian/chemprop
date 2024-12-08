@@ -36,6 +36,7 @@ from chemprop.cli.utils import (
 )
 from chemprop.cli.utils.args import uppercase
 from chemprop.data import (
+    MockDataset,
     MoleculeDataset,
     MolGraphDataset,
     MolAtomBondDataset,
@@ -934,18 +935,18 @@ def build_datasets(args, train_data, val_data, test_data):
             test_dset = None
     elif args.is_mixed:
         train_dsets = [
-            make_dataset(train_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+            make_dataset(train_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data) if args.mixed_columns[data] else MockDataset()
             for data in range(len(train_data))
         ]
         val_dsets = [
-            make_dataset(val_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+            make_dataset(val_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data) if args.mixed_columns[data] else MockDataset()
             for data in range(len(val_data))
         ]
         train_dset = MolAtomBondDataset(train_dsets[0], train_dsets[1], train_dsets[2])
         val_dset = MolAtomBondDataset(val_dsets[0], val_dsets[1], val_dsets[2])
         if len(test_data[0]) > 0:
             test_dsets = [
-                make_dataset(test_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data)
+                make_dataset(test_data[data], args.rxn_mode, args.multi_hot_atom_featurizer_mode, data) if args.mixed_columns[data] else MockDataset()
                 for data in range(len(test_data))
             ]
             test_dset = MolAtomBondDataset(test_dsets[0], test_dsets[1], test_dsets[2])
@@ -1268,6 +1269,7 @@ def train_model(
                 predss = trainer.predict(model, dataloaders=test_loader)
             else:
                 predss = trainer.predict(dataloaders=test_loader)
+
             if args.is_mixed:
                 preds = []
                 preds.append(torch.concat([predss[0][0]], 0))
@@ -1281,15 +1283,19 @@ def train_model(
 
             dfs = []
             for i in range(len(preds)):
-                preds[i] = preds[i].numpy()
-                dfs.append(evaluate_and_save_predictions(
-                    preds[i], test_loader, model.metrics[i][:-1], model_output_dir, args, i
-                ))
-            if len(dfs) > 1:
-                print(args.smiles_columns)
+                if args.mixed_columns[i]:
+                    preds[i] = preds[i].numpy()
+                    dfs.append(evaluate_and_save_predictions(
+                        preds[i], test_loader, model.metrics[i][:-1], model_output_dir, args, i
+                    ))
+            if len(dfs) == 3:
                 dfs[1] = dfs[1].drop(args.input_columns, axis=1)
                 dfs[2] = dfs[2].drop(args.input_columns, axis=1)
                 df_comb = pd.concat([dfs[0], dfs[1], dfs[2]], axis=1)
+                df_comb.to_csv(model_output_dir / "test_predictions.csv", index=False)
+            elif len(dfs) == 2:
+                dfs[1] = dfs[1].drop(args.input_columns, axis=1)
+                df_comb = pd.concat([dfs[0], dfs[1]], axis=1)
                 df_comb.to_csv(model_output_dir / "test_predictions.csv", index=False)
             else:
                 df_comb = dfs[0]

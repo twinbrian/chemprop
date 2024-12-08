@@ -29,7 +29,6 @@ def parse_csv(
     weight_col: str | None,
     bounded: bool = False,
     no_header_row: bool = False,
-    is_atom_bond_targets: bool = False,
 ):
     df = pd.read_csv(path, header=None if no_header_row else "infer", index_col=False)
 
@@ -60,34 +59,16 @@ def parse_csv(
             )
         )
 
-    if is_atom_bond_targets:
-        Y = []
-        for molecule in range(len(df)):
-            list_props = []
-            for prop in target_cols:
-                np_prop = np.array(ast.literal_eval(df.iloc[molecule][prop]))
-                np_prop = np.expand_dims(np_prop, axis=1)
-                list_props.append(np_prop)
-            Y.append(np.hstack(list_props))
-    else:
-        Y = df[target_cols]
+    Y = df[target_cols]
 
     weights = None if weight_col is None else df[weight_col].to_numpy(np.single)
 
-    if bounded and not is_atom_bond_targets:
+    if bounded:
         lt_mask = Y.applymap(lambda x: "<" in x).to_numpy()
         gt_mask = Y.applymap(lambda x: ">" in x).to_numpy()
         Y = Y.applymap(lambda x: x.strip("<").strip(">")).to_numpy(np.single)
-    elif bounded and is_atom_bond_targets:
-        dim = Y[0].shape[1]
-        lt_mask = np.empty((0, dim))
-        gt_mask = np.empty((0, dim))
-        for i in range(len(Y)):
-            lt_mask = np.vstack([lt_mask, Y[i].applymap(lambda x: "<" in x).to_numpy()])
-            gt_mask = np.vstack([gt_mask, Y[i].applymap(lambda x: ">" in x).to_numpy()])
-            Y[i] = Y[i].applymap(lambda x: x.strip("<").strip(">")).to_numpy(np.single)
     else:
-        Y = np.array(Y) if is_atom_bond_targets else Y.to_numpy(np.single)
+        Y = Y.to_numpy(np.single)
         lt_mask = None
         gt_mask = None
 
