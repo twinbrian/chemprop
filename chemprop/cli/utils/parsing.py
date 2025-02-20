@@ -6,8 +6,14 @@ from typing import Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from chemprop.data.datapoints import MoleculeDatapoint, ReactionDatapoint
-from chemprop.data.datasets import AtomDataset, BondDataset, MoleculeDataset, ReactionDataset
+from chemprop.data.datapoints import MolDatapoint, MoleculeDatapoint, ReactionDatapoint
+from chemprop.data.datasets import (
+    AtomDataset,
+    BondDataset,
+    MolDataset,
+    MoleculeDataset,
+    ReactionDataset,
+)
 from chemprop.featurizers.atom import get_multi_hot_atom_featurizer
 from chemprop.featurizers.molecule import MoleculeFeaturizerRegistry
 from chemprop.featurizers.molgraph import (
@@ -246,6 +252,7 @@ def make_datapoints(
     V_fss: list[list[np.ndarray] | list[None]] | None,
     E_fss: list[list[np.ndarray] | list[None]] | None,
     V_dss: list[list[np.ndarray] | list[None]] | None,
+    flag: bool,
     molecule_featurizers: list[str] | None,
     keep_h: bool,
     add_h: bool,
@@ -294,6 +301,8 @@ def make_datapoints(
         the number of extra atom descriptors used for the j-th molecules. Any of the ``j`` lists can
         be a list of None values if the corresponding component does not use extra atom features. If
         ``None``, ``V_d`` for all datapoints will be ``None``.
+    flag: bool
+        flag that is true when we are doing Molecule, Atom, and/or Bond predictions and False otherwise
     molecule_featurizers : list[str] | None
         a list of molecule featurizer names to generate additional molecule features to use as extra
         descriptors. If there are multiple molecules per datapoint, the featurizers will be applied
@@ -395,25 +404,47 @@ def make_datapoints(
             else:
                 X_d = np.hstack([X_d, rct_pdt_descriptors])
 
-    mol_data = [
-        [
-            MoleculeDatapoint(
-                mol=molss[mol_idx][i],
-                name=smis[i],
-                y=Y[i],
-                weight=weights[i],
-                gt_mask=gt_mask[i],
-                lt_mask=lt_mask[i],
-                x_d=X_d[i],
-                x_phase=None,
-                V_f=V_fss[mol_idx][i],
-                E_f=E_fss[mol_idx][i],
-                V_d=V_dss[mol_idx][i],
-            )
-            for i in range(N)
+    if flag:
+        mol_data = [
+            [
+                MolDatapoint(
+                    mol=molss[mol_idx][i],
+                    name=smis[i],
+                    y=Y[i],
+                    weight=weights[i],
+                    gt_mask=gt_mask[i],
+                    lt_mask=lt_mask[i],
+                    x_d=X_d[i],
+                    x_phase=None,
+                    V_f=V_fss[mol_idx][i],
+                    E_f=E_fss[mol_idx][i],
+                    V_d=V_dss[mol_idx][i],
+                )
+                for i in range(N)
+            ]
+            for mol_idx, smis in enumerate(smiss)
         ]
-        for mol_idx, smis in enumerate(smiss)
-    ]
+    else:
+        mol_data = [
+            [
+                MoleculeDatapoint(
+                    mol=molss[mol_idx][i],
+                    name=smis[i],
+                    y=Y[i],
+                    weight=weights[i],
+                    gt_mask=gt_mask[i],
+                    lt_mask=lt_mask[i],
+                    x_d=X_d[i],
+                    x_phase=None,
+                    V_f=V_fss[mol_idx][i],
+                    E_f=E_fss[mol_idx][i],
+                    V_d=V_dss[mol_idx][i],
+                )
+                for i in range(N)
+            ]
+            for mol_idx, smis in enumerate(smiss)
+        ]
+
     rxn_data = [
         [
             ReactionDatapoint(
@@ -482,6 +513,7 @@ def build_data_from_files(
         V_fss,
         E_fss,
         V_dss,
+        False,
         **featurization_kwargs,
     )
 
@@ -535,6 +567,7 @@ def build_mixed_data_from_files(
         V_fss,
         E_fss,
         V_dss,
+        True,
         **featurization_kwargs,
     )
 
@@ -549,6 +582,7 @@ def build_mixed_data_from_files(
         V_fss,
         E_fss,
         V_dss,
+        True,
         **featurization_kwargs,
     )
 
@@ -563,6 +597,7 @@ def build_mixed_data_from_files(
         V_fss,
         E_fss,
         V_dss,
+        True,
         **featurization_kwargs,
     )
 
@@ -621,8 +656,8 @@ def make_dataset(
     data: Sequence[MoleculeDatapoint] | Sequence[ReactionDatapoint],
     reaction_mode: str,
     multi_hot_atom_featurizer_mode: str = "V2",
-    index: int = 0,
-) -> MoleculeDataset | AtomDataset | BondDataset | ReactionDataset:
+    index: int = -1,
+) -> MoleculeDataset | MolDataset | AtomDataset | BondDataset | ReactionDataset:
     atom_featurizer = get_multi_hot_atom_featurizer(multi_hot_atom_featurizer_mode)
 
     if isinstance(data[0], MoleculeDatapoint):
@@ -633,8 +668,10 @@ def make_dataset(
             extra_atom_fdim=extra_atom_fdim,
             extra_bond_fdim=extra_bond_fdim,
         )
-        if index == 0:
+        if index == -1:
             return MoleculeDataset(data, featurizer)
+        elif index == 0:
+            return MolDataset(data, featurizer)
         elif index == 1:
             return AtomDataset(data, featurizer)
         elif index == 2:
