@@ -160,6 +160,93 @@ class _MolGraphDatasetMixin:
 
 
 @dataclass
+class MockDataset(_MolGraphDatasetMixin, MolGraphDataset):
+    """A :class:`MockDataset` serves to create a mock empty dataset that passes through all the message passing code.
+    This is used when there are no target columns for any of molecule, atom, and/or bond for mixed predictions
+    """
+
+    featurizer = SimpleMoleculeMolGraphFeaturizer
+
+    def Y(self) -> np.ndarray:
+        """the (scaled) targets of the dataset"""
+        return np.array([])
+
+    def __getitem__(self, idx: int) -> Datum:
+        return None
+
+    @property
+    def cache(self) -> bool:
+        return self.__cache
+
+    @cache.setter
+    def cache(self, cache: bool = False):
+        self.__cache = cache
+        self._init_cache()
+
+    def _init_cache(self):
+        """initialize the cache"""
+        self.mg_cache = (MolGraphCache if self.cache else MolGraphCacheOnTheFly)(
+            self.mols, self.V_fs, self.E_fs, self.featurizer
+        )
+
+    @cached_property
+    def _slices(self) -> list:
+        return None
+
+    @property
+    def V_fs(self) -> list[np.ndarray]:
+        """the raw atom features of the dataset"""
+        return np.array([])
+
+    @property
+    def E_fs(self) -> list[np.ndarray]:
+        """the raw bond features of the dataset"""
+        return np.array([])
+
+    @property
+    def V_ds(self) -> list[np.ndarray]:
+        """the raw atom descriptors of the dataset"""
+        return np.array([])
+
+    @property
+    def E_ds(self) -> list[np.ndarray]:
+        return np.array([])
+
+    @property
+    def d_vf(self) -> int:
+        """the extra atom feature dimension, if any"""
+        return 0
+
+    @property
+    def d_ef(self) -> int:
+        """the extra bond feature dimension, if any"""
+        return 0
+
+    @property
+    def d_vd(self) -> int:
+        """the extra atom descriptor dimension, if any"""
+        return 0
+
+    @property
+    def d_ed(self) -> int:
+        return 0
+
+    def normalize_inputs(
+        self, key: str = "X_d", scaler: StandardScaler | None = None
+    ) -> StandardScaler:
+        scaler = StandardScaler()
+        scaler.mean_ = [0]
+        scaler.scale_ = [1]
+        return scaler
+
+    def normalize_targets(self, scaler: StandardScaler | None = None) -> StandardScaler:
+        scaler = StandardScaler()
+        scaler.mean_ = [0]
+        scaler.scale_ = [1]
+        return scaler
+
+
+@dataclass
 class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
     """A :class:`MoleculeDataset` composed of :class:`MoleculeDatapoint`\s
 
@@ -510,139 +597,6 @@ class BondDataset(AtomDataset):
             slice_indices.extend([index] * d.mol.GetNumBonds())
             index += 1
         return slice_indices
-
-
-@dataclass
-class MockDataset(_MolGraphDatasetMixin, MolAtomBondGraphDataset):
-    """A :class:`MockDataset` serves to create a mock empty dataset that passes through all the message passing code.
-    This is used when there are no target columns for any of molecule, atom, and/or bond for mixed predictions
-    """
-
-    featurizer = SimpleMoleculeMolGraphFeaturizer
-
-    def Y(self) -> np.ndarray:
-        """the (scaled) targets of the dataset"""
-        return np.array([])
-
-    def __getitem__(self, idx: int) -> Datum:
-        return None
-
-    @property
-    def cache(self) -> bool:
-        return self.__cache
-
-    @cache.setter
-    def cache(self, cache: bool = False):
-        self.__cache = cache
-        self._init_cache()
-
-    def _init_cache(self):
-        """initialize the cache"""
-        self.mg_cache = (MolGraphCache if self.cache else MolGraphCacheOnTheFly)(
-            self.mols, self.V_fs, self.E_fs, self.featurizer
-        )
-
-    @cached_property
-    def _slices(self) -> list:
-        return None
-
-    @property
-    def _V_fs(self) -> list[np.ndarray]:
-        """the raw atom features of the dataset"""
-        return np.array([])
-
-    @property
-    def V_fs(self) -> list[np.ndarray]:
-        """the (scaled) atom descriptors of the dataset"""
-        return self.__V_fs
-
-    @V_fs.setter
-    def V_fs(self, V_fs: list[np.ndarray]):
-        """the (scaled) atom features of the dataset"""
-        self._validate_attribute(V_fs, "atom features")
-
-        self.__V_fs = V_fs
-        self._init_cache()
-
-    @property
-    def _E_fs(self) -> list[np.ndarray]:
-        """the raw bond features of the dataset"""
-        return np.array([])
-
-    @property
-    def E_fs(self) -> list[np.ndarray]:
-        """the (scaled) bond features of the dataset"""
-        return self.__E_fs
-
-    @E_fs.setter
-    def E_fs(self, E_fs: list[np.ndarray]):
-        self._validate_attribute(E_fs, "bond features")
-
-        self.__E_fs = E_fs
-        self._init_cache()
-
-    @property
-    def _V_ds(self) -> list[np.ndarray]:
-        """the raw atom descriptors of the dataset"""
-        return np.array([])
-
-    @property
-    def V_ds(self) -> list[np.ndarray]:
-        """the (scaled) atom descriptors of the dataset"""
-        return self.__V_ds
-
-    @V_ds.setter
-    def V_ds(self, V_ds: list[np.ndarray]):
-        self._validate_attribute(V_ds, "atom descriptors")
-
-        self.__V_ds = V_ds
-
-    @property
-    def _E_ds(self) -> list[np.ndarray]:
-        return np.array([])
-
-    @property
-    def E_ds(self) -> list[np.ndarray]:
-        return self.__E_ds
-
-    @E_ds.setter
-    def E_ds(self, E_ds: list[np.ndarray]):
-        self._validate_attribute(E_ds, "bond descriptors")
-
-        self.__E_ds = E_ds
-
-    @property
-    def d_vf(self) -> int:
-        """the extra atom feature dimension, if any"""
-        return 0
-
-    @property
-    def d_ef(self) -> int:
-        """the extra bond feature dimension, if any"""
-        return 0
-
-    @property
-    def d_vd(self) -> int:
-        """the extra atom descriptor dimension, if any"""
-        return 0
-
-    @property
-    def d_ed(self) -> int:
-        return 0
-
-    def normalize_inputs(
-        self, key: str = "X_d", scaler: StandardScaler | None = None
-    ) -> StandardScaler:
-        scaler = StandardScaler()
-        scaler.mean_ = [0]
-        scaler.scale_ = [1]
-        return scaler
-
-    def normalize_targets(self, scaler: StandardScaler | None = None) -> StandardScaler:
-        scaler = StandardScaler()
-        scaler.mean_ = [0]
-        scaler.scale_ = [1]
-        return scaler
 
 
 @dataclass(repr=False, eq=False)

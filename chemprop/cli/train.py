@@ -38,6 +38,7 @@ from chemprop.cli.utils.args import uppercase
 from chemprop.data import (
     MockDataset,
     MolAtomBondDataset,
+    MolDataset,
     MoleculeDataset,
     MolGraphDataset,
     MulticomponentDataset,
@@ -587,7 +588,11 @@ def normalize_inputs(train_dset, val_dset, args):
     d_vf = train_dset.d_vf
     d_ef = train_dset.d_ef
     d_vd = train_dset.d_vd
-    d_ed = train_dset.d_ed
+    d_ed = (
+        train_dset.d_ed
+        if isinstance(train_dset, MolDataset) or isinstance(train_dset, MolAtomBondDataset)
+        else 0
+    )
 
     if d_xd > 0 and not args.no_descriptor_scaling:
         scaler = train_dset.normalize_inputs("X_d")
@@ -1080,7 +1085,7 @@ def build_model(
             train_dset.featurizer.bond_fdim,
             d_h=args.message_hidden_dim,
             d_vd=train_dset.d_vd if isinstance(train_dset, MoleculeDataset) else 0,
-            d_ed=train_dset.d_ed if isinstance(train_dset, MoleculeDataset) else 0,
+            d_ed=0,
             bias=args.message_bias,
             depth=args.depth,
             undirected=args.undirected,

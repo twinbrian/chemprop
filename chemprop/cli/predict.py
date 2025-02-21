@@ -214,6 +214,10 @@ def prepare_data_loader(
             **featurization_kwargs,
         )
         args.mixed_columns = [mol_cols, atom_cols, bond_cols]
+        dsets = [
+            make_dataset(datas[d], args.rxn_mode, args.multi_hot_atom_featurizer_mode, d)
+            for d in range(len(datas))
+        ]
     else:
         datas = build_data_from_files(
             data_path,
@@ -224,11 +228,11 @@ def prepare_data_loader(
             p_atom_descs=atom_descs_path,
             **featurization_kwargs,
         )
+        dsets = [
+            make_dataset(datas[d], args.rxn_mode, args.multi_hot_atom_featurizer_mode)
+            for d in range(len(datas))
+        ]
 
-    dsets = [
-        make_dataset(datas[d], args.rxn_mode, args.multi_hot_atom_featurizer_mode, d)
-        for d in range(len(datas))
-    ]
     dset = dsets[0]
     if multicomponent:
         dset = data.MulticomponentDataset(dsets)

@@ -10,7 +10,12 @@ import torch
 from chemprop import data
 from chemprop.cli.common import add_common_args, process_common_args, validate_common_args
 from chemprop.cli.predict import find_models
-from chemprop.cli.utils import Subcommand, build_data_from_files, make_dataset
+from chemprop.cli.utils import (
+    Subcommand,
+    build_data_from_files,
+    build_mixed_data_from_files,
+    make_dataset,
+)
 from chemprop.models import load_mixed_model, load_model
 from chemprop.nn.metrics import LossFunctionRegistry
 
@@ -108,19 +113,35 @@ def make_fingerprint_for_model(
         molecule_featurizers=args.molecule_featurizers, keep_h=args.keep_h, add_h=args.add_h
     )
 
-    test_data = build_data_from_files(
-        args.test_path,
-        **format_kwargs,
-        p_descriptors=args.descriptors_path,
-        p_atom_feats=args.atom_features_path,
-        p_bond_feats=args.bond_features_path,
-        p_atom_descs=args.atom_descriptors_path,
-        **featurization_kwargs,
-    )
-    logger.info(f"test size: {len(test_data[0])}")
-    test_dsets = [
-        make_dataset(d, args.rxn_mode, args.multi_hot_atom_featurizer_mode) for d in test_data
-    ]
+    if args.is_mixed:
+        test_data, *_ = build_mixed_data_from_files(
+            args.test_path,
+            **format_kwargs,
+            p_descriptors=args.descriptors_path,
+            p_atom_feats=args.atom_features_path,
+            p_bond_feats=args.bond_features_path,
+            p_atom_descs=args.atom_descriptors_path,
+            **featurization_kwargs,
+        )
+        logger.info(f"test size: {len(test_data[0])}")
+        test_dsets = [
+            make_dataset(test_data[d], args.rxn_mode, args.multi_hot_atom_featurizer_mode, d)
+            for d in range(len(test_data))
+        ]
+    else:
+        test_data = build_data_from_files(
+            args.test_path,
+            **format_kwargs,
+            p_descriptors=args.descriptors_path,
+            p_atom_feats=args.atom_features_path,
+            p_bond_feats=args.bond_features_path,
+            p_atom_descs=args.atom_descriptors_path,
+            **featurization_kwargs,
+        )
+        logger.info(f"test size: {len(test_data[0])}")
+        test_dsets = [
+            make_dataset(d, args.rxn_mode, args.multi_hot_atom_featurizer_mode) for d in test_data
+        ]
 
     if multicomponent:
         test_dset = data.MulticomponentDataset(test_dsets)
